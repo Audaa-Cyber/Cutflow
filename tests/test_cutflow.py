@@ -82,7 +82,7 @@ class CutflowTests(unittest.TestCase):
         self.assertGreater(len(dialogue_lines), 1)
         for line in dialogue_lines:
             caption = line.split(",,", 1)[-1]
-            visible_caption = re.sub(r"\\{[^}]*\\}", "", caption)
+            visible_caption = re.sub(r"\{[^}]*\}", "", caption)
             self.assertLessEqual(len(visible_caption), 28)
 
     def test_caption_layout_supports_all_output_ratios(self):
