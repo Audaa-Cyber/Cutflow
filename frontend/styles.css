@@ -5,3 +5,7 @@
 
 /* Premium caption presets */
 .caption-style-group{margin:17px 0 3px;padding-top:15px;border-top:1px solid #2b2e27}.caption-style-select{display:block;width:100%;margin-top:9px;background:#20221c;border:1px solid #383b31;border-radius:7px;color:#e0e5d7;padding:10px 11px;font:11px var(--font);outline:none}.caption-style-select:focus{border-color:#829e42;box-shadow:0 0 0 2px #d5ff5f14}.caption-style-help{font-size:9px;line-height:1.55;color:#7f8578;margin:8px 0 0}.caption-style-group>label{font-size:10px;font-weight:600;color:#cdd1c4}
+
+/* Per-clip export quality controls */
+.quality-download-row{display:flex;align-items:stretch;gap:8px;margin-top:10px}.quality-select-label{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:77px;border:1px solid #383d30;background:#1b1e17;border-radius:6px;padding:5px 8px;color:#858c7b;font:8px var(--mono);letter-spacing:.7px}.quality-select{width:100%;border:0;outline:0;background:transparent;color:#dce3d0;font:11px var(--font);cursor:pointer}.quality-select option{background:#1b1e17;color:#e0e5d7}.quality-download-row .download-button{flex:1;min-width:0;margin:0;height:auto;min-height:39px;padding:7px;text-align:center}.quality-download-note{font-size:8px;line-height:1.5;color:#747b6c;margin:7px 0 0}.quality-download-row .download-button:hover{border-color:#788b4c}
+@media(max-width:390px){.quality-download-row{gap:6px}.quality-select-label{min-width:69px;padding:5px 6px}.quality-download-row .download-button{font-size:9px}}
