@@ -1,0 +1,21 @@
+services:
+  cutflow:
+    build: .
+    container_name: cutflow
+    ports:
+      - "8000:8000"
+    environment:
+      CUTFLOW_DATA_DIR: /app/data
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
+      MAX_VIDEO_SECONDS: ${MAX_VIDEO_SECONDS:-10800}
+      WORKER_CONCURRENCY: 1
+      FFMPEG_PRESET: veryfast
+    volumes:
+      - cutflow-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cutflow-data:
