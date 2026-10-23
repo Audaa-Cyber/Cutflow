@@ -463,7 +463,8 @@ def process_job(job_id: str) -> None:
         update_job(job_id, progress=28, stage="Analyzing visuals", message="Detecting scene changes to help find stronger moments.", transcript_preview=transcript[:1200], language=language)
         scene_changes = detect_scene_changes(source)
         update_job(job_id, progress=34, stage="Finding highlights", message=f"Ranking moments with speech and {len(scene_changes)} detected scene changes.", transcript_preview=transcript[:1200], language=language, scene_change_count=len(scene_changes))
-        candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], max(job["clip_count"] * 5, job["clip_count"]), scene_changes)
+        candidate_limit = max(job["clip_count"] * 5, job["clip_count"]) if job.get("edit_prompt", "").strip() else job["clip_count"]
+        candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], candidate_limit, scene_changes)
         candidates, ai_warning = apply_prompt_edit_plan(candidates, transcript, job.get("edit_prompt", ""), job["template"])
         if ai_warning:
             update_job(job_id, warning=ai_warning)
@@ -502,6 +503,8 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
         raise HTTPException(400, "Choose a valid template.")
     if aspect_ratio not in {"9:16", "1:1", "16:9"}:
         raise HTTPException(400, "Choose a valid aspect ratio.")
+    if not 1 <= clip_count <= 8:
+        raise HTTPException(400, "Choose between 1 and 8 clips.")
     if not (10 <= min_duration < max_duration <= 90):
         raise HTTPException(400, "Clip duration must be between 10 and 90 seconds, with minimum below maximum.")
     job_id = uuid.uuid4().hex
