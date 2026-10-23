@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="cutflow-tests-")
 os.environ["CUTFLOW_DATA_DIR"] = TEST_DATA_DIR
@@ -15,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
-from backend.app import TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates
+from backend.app import CAPTION_STYLES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates, render_clip, write_ass
 
 
 def sample_words():
@@ -60,6 +61,47 @@ class CutflowTests(unittest.TestCase):
             self.assertLessEqual(clip["duration"], 20)
         for previous, current in zip(clips, clips[1:]):
             self.assertGreaterEqual(current["start"], previous["start"])
+
+
+    def test_caption_presets_and_phrase_captions_stay_readable(self):
+        self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow"})
+        words = [
+            {"start": i * 0.4, "end": i * 0.4 + 0.3, "word": word}
+            for i, word in enumerate("This is a really useful explanation that should remain inside the frame.".split())
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            subtitle = Path(directory) / "captions.ass"
+            write_ass(subtitle, words, 0, 8, "9:16", "pulse")
+            rendered = subtitle.read_text(encoding="utf-8")
+        self.assertIn("PlayResY: 1920", rendered)
+        self.assertIn("DejaVu Sans", rendered)
+        self.assertIn("MarginV", rendered)
+        self.assertIn(r"\\c&H0066F4C6", rendered)
+        dialogue_lines = [line for line in rendered.splitlines() if line.startswith("Dialogue:")]
+        self.assertGreater(len(dialogue_lines), 1)
+        for line in dialogue_lines:
+            caption = line.split(",,", 1)[-1]
+            self.assertLessEqual(len(caption), 70)
+
+    def test_caption_layout_supports_all_output_ratios(self):
+        words = [{"start": 0.2, "end": 0.8, "word": "Hello world."}]
+        expected = {"9:16": "PlayResY: 1920", "1:1": "PlayResY: 1080", "16:9": "PlayResX: 1920"}
+        with tempfile.TemporaryDirectory() as directory:
+            for aspect, marker in expected.items():
+                subtitle = Path(directory) / f"{aspect.replace(':', '-')}.ass"
+                write_ass(subtitle, words, 0, 2, aspect, "clean")
+                self.assertIn(marker, subtitle.read_text(encoding="utf-8"))
+
+    def test_render_pipeline_uses_subtle_finishing_and_preserves_audio(self):
+        with patch("backend.app.run_command") as run:
+            render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 2, 12, "9:16")
+        command = run.call_args.args[0]
+        filter_arg = command[command.index("-vf") + 1]
+        self.assertIn("eq=contrast=1.04:saturation=1.06", filter_arg)
+        self.assertIn("unsharp=5:5:0.25", filter_arg)
+        self.assertIn("ass=", filter_arg)
+        self.assertIn("-c:a", command)
+        self.assertIn("160k", command)
 
     def test_prompt_falls_back_cleanly_when_ai_not_configured(self):
         candidates = [{"start": 1, "end": 12, "score": 60, "title": "A clip", "text": "sample"}]
