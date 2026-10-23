@@ -510,6 +510,36 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
     run_command(command, timeout=1200)
 
 
+
+def export_dimensions(aspect: str, resolution: str) -> tuple[int, int]:
+    """Return consistent, even output dimensions for the requested quality tier."""
+    dimensions = {
+        "9:16": {"480": (480, 854), "720": (720, 1280), "1080": (1080, 1920), "2k": (1440, 2560)},
+        "1:1": {"480": (480, 480), "720": (720, 720), "1080": (1080, 1080), "2k": (1440, 1440)},
+        "16:9": {"480": (854, 480), "720": (1280, 720), "1080": (1920, 1080), "2k": (2560, 1440)},
+    }
+    if resolution.lower() not in EXPORT_RESOLUTIONS:
+        raise HTTPException(400, "Choose 480p, 720p, 1080p, or 2K.")
+    if aspect not in dimensions:
+        raise HTTPException(400, "This project has an unsupported aspect ratio.")
+    return dimensions[aspect][resolution.lower()]
+
+
+def render_export(source: Path, output: Path, aspect: str, resolution: str) -> None:
+    """Create a cached quality variant from the already-captioned master clip."""
+    width, height = export_dimensions(aspect, resolution)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(source),
+        "-vf", f"scale={width}:{height}:flags=lanczos,format=yuv420p",
+        "-c:v", "libx264", "-preset", os.getenv("EXPORT_FFMPEG_PRESET", "veryfast"),
+        "-crf", "21" if resolution.lower() in {"1080", "2k"} else "23",
+        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(output),
+    ]
+    run_command(command, timeout=1200)
+
+
 def process_job(job_id: str) -> None:
     job = JOBS[job_id]
     source: Path | None = None
