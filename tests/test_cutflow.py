@@ -13,7 +13,7 @@ os.environ["OPENAI_BASE_URL"] = ""
 os.environ["OPENAI_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.app import TEMPLATES, apply_prompt_edit_plan, make_title, rank_candidates
+from fastapi import HTTPException\n\nfrom backend.app import TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates
 
 
 def sample_words():
@@ -65,6 +65,22 @@ class CutflowTests(unittest.TestCase):
         self.assertEqual(selected, candidates)
         self.assertIsNotNone(warning)
         self.assertIn("not configured", warning)
+
+    def test_job_metadata_is_persisted_to_sqlite(self):
+        job = {"id": "a" * 32, "created_at": 1.0, "updated_at": 1.0, "status": "queued"}
+        persist_job(job)
+        with db_connection() as connection:
+            row = connection.execute("SELECT payload FROM jobs WHERE id = ?", (job["id"],)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn(job["id"], row["payload"])
+
+    def test_invalid_clip_count_is_rejected(self):
+        with self.assertRaises(HTTPException):
+            create_job("podcast", "9:16", 99, 20, 45)
+
+    def test_clip_download_rejects_invalid_project_id(self):
+        with self.assertRaises(HTTPException):
+            download_clip("../outside", "cutflow-01.mp4")
 
     def test_prompt_without_brief_does_not_call_provider(self):
         candidates = [{"start": 1, "end": 12, "score": 60}]
