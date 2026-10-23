@@ -76,7 +76,7 @@ class CutflowTests(unittest.TestCase):
         self.assertIn("PlayResY: 1920", rendered)
         self.assertIn("DejaVu Sans", rendered)
         self.assertIn("MarginV", rendered)
-        self.assertIn(r"\\c&H0066F4C6", rendered)
+        self.assertIn(r"\c&H0066F4C6", rendered)
         dialogue_lines = [line for line in rendered.splitlines() if line.startswith("Dialogue:")]
         self.assertGreater(len(dialogue_lines), 1)
         for line in dialogue_lines:
