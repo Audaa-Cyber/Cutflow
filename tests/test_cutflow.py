@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -81,7 +82,8 @@ class CutflowTests(unittest.TestCase):
         self.assertGreater(len(dialogue_lines), 1)
         for line in dialogue_lines:
             caption = line.split(",,", 1)[-1]
-            self.assertLessEqual(len(caption), 70)
+            visible_caption = re.sub(r"\\{[^}]*\\}", "", caption)
+            self.assertLessEqual(len(visible_caption), 28)
 
     def test_caption_layout_supports_all_output_ratios(self):
         words = [{"start": 0.2, "end": 0.8, "word": "Hello world."}]
