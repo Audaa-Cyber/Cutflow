@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -33,6 +34,8 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+EXPORT_RESOLUTIONS = {"480", "720", "1080", "2k"}
+EXPORT_LOCK = threading.Lock()
 DB_PATH = Path(os.getenv("CUTFLOW_DB_PATH", str(DATA / "cutflow.sqlite3")))
 AI_BASE_URL = (os.getenv("AI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").rstrip("/")
 AI_API_KEY = os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
@@ -210,14 +213,20 @@ def download_source(url: str, job_id: str) -> Path:
     return path
 
 
-def transcribe(path: Path, job_id: str) -> tuple[list[dict], str, str]:
-    update_job(job_id, progress=14, stage="Transcribing speech", message="Listening for words and timestamps.")
+@lru_cache(maxsize=1)
+def get_whisper_model():
+    """Load Whisper once per server process instead of reloading its weights for every project."""
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise RuntimeError("Speech transcription is unavailable. Install backend requirements and restart.") from exc
-    model = WhisperModel(WHISPER_MODEL, device=os.getenv("WHISPER_DEVICE", "cpu"), compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"))
-    segments, info = model.transcribe(str(path), word_timestamps=True, vad_filter=True, beam_size=3)
+    return WhisperModel(WHISPER_MODEL, device=os.getenv("WHISPER_DEVICE", "cpu"), compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"), cpu_threads=max(1, int(os.getenv("WHISPER_CPU_THREADS", str(os.cpu_count() or 4)))), num_workers=1)
+
+
+def transcribe(path: Path, job_id: str) -> tuple[list[dict], str, str]:
+    update_job(job_id, progress=14, stage="Transcribing speech", message="Listening for words and timestamps.")
+    model = get_whisper_model()
+    segments, info = model.transcribe(str(path), word_timestamps=True, vad_filter=True, beam_size=1, condition_on_previous_text=False)
     words: list[dict] = []
     transcript_parts: list[str] = []
     for segment in segments:
@@ -336,7 +345,7 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
 
 def detect_scene_changes(path: Path) -> list[float]:
     """Use FFmpeg's scene-change detector as a lightweight visual signal."""
-    command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
+    command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "fps=2,scale=320:-2:flags=fast_bilinear,select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired):
