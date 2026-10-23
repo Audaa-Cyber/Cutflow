@@ -2,9 +2,13 @@ import os
 import tempfile
 import unittest
 
-os.environ.setdefault("CUTFLOW_DATA_DIR", tempfile.mkdtemp(prefix="cutflow-tests-"))
-os.environ.setdefault("AI_BASE_URL", "")
-os.environ.setdefault("AI_API_KEY", "")
+TEST_DATA_DIR = tempfile.mkdtemp(prefix="cutflow-tests-")
+os.environ["CUTFLOW_DATA_DIR"] = TEST_DATA_DIR
+os.environ["CUTFLOW_DB_PATH"] = os.path.join(TEST_DATA_DIR, "cutflow-test.sqlite3")
+os.environ["AI_BASE_URL"] = ""
+os.environ["AI_API_KEY"] = ""
+os.environ["OPENAI_BASE_URL"] = ""
+os.environ["OPENAI_API_KEY"] = ""
 
 from backend.app import TEMPLATES, apply_prompt_edit_plan, make_title, rank_candidates
 
