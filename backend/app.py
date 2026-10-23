@@ -4,10 +4,13 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,6 +31,10 @@ for directory in (UPLOADS, OUTPUTS, FRONTEND):
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+DB_PATH = Path(os.getenv("CUTFLOW_DB_PATH", str(DATA / "cutflow.sqlite3")))
+AI_BASE_URL = (os.getenv("AI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").rstrip("/")
+AI_API_KEY = os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+AI_MODEL = os.getenv("AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be", "vimeo.com", "www.vimeo.com", "player.vimeo.com"}
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 
@@ -65,14 +72,51 @@ TEMPLATES = {
 }
 
 JOBS: dict[str, dict] = {}
-LOCK = threading.Lock()
+LOCK = threading.RLock()
+
+
+def db_connection():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH, timeout=30)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def persist_job(job: dict) -> None:
+    payload = json.dumps(job, ensure_ascii=False)
+    with db_connection() as connection:
+        connection.execute(
+            "INSERT INTO jobs (id, created_at, updated_at, status, payload) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, status=excluded.status, payload=excluded.payload",
+            (job["id"], job["created_at"], job["updated_at"], job["status"], payload),
+        )
+
+
+def load_persisted_jobs() -> None:
+    with db_connection() as connection:
+        connection.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at REAL NOT NULL, updated_at REAL NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL)")
+        rows = connection.execute("SELECT payload FROM jobs ORDER BY created_at DESC").fetchall()
+    for row in rows:
+        try:
+            job = json.loads(row["payload"])
+            if job.get("status") in {"queued", "processing"}:
+                job.update(status="failed", progress=100, stage="Interrupted", message="The server restarted while this job was running. Please submit it again.", error="Processing was interrupted by a server restart.")
+                job["updated_at"] = time.time()
+                persist_job(job)
+            JOBS[job["id"]] = job
+        except (ValueError, KeyError, TypeError):
+            continue
+
+
+load_persisted_jobs()
 POOL = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("WORKER_CONCURRENCY", "1"))))
 
-app = FastAPI(title="Cutflow", version="0.1.0", description="Template-driven video clipping MVP")
+app = FastAPI(title="Cutflow", version="0.2.0", description="AI-assisted short-form video clipping workspace")
 
 
 class URLJob(BaseModel):
     source_url: str
+    edit_prompt: str = Field(default="", max_length=1200)
     template: str = "podcast"
     aspect_ratio: str = "9:16"
     clip_count: int = Field(default=3, ge=1, le=8)
@@ -85,6 +129,7 @@ def update_job(job_id: str, **updates) -> None:
         if job_id in JOBS:
             JOBS[job_id].update(updates)
             JOBS[job_id]["updated_at"] = time.time()
+            persist_job(JOBS[job_id])
 
 
 def run_command(command: list[str], timeout: int = 900) -> str:
@@ -204,7 +249,7 @@ def sentence_groups(words: list[dict]) -> list[list[dict]]:
     return result
 
 
-def rank_candidates(words: list[dict], template: str, min_duration: int, max_duration: int, video_duration: float, count: int) -> list[dict]:
+def rank_candidates(words: list[dict], template: str, min_duration: int, max_duration: int, video_duration: float, count: int, scene_changes: list[float] | None = None) -> list[dict]:
     config = TEMPLATES[template]
     sentences = sentence_groups(words)
     candidates: list[dict] = []
@@ -235,12 +280,16 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
                 density_score = min(12, density * 3)
                 duration_score = max(0, 15 - abs(duration - target) * 0.55)
                 context_score = 10 if text[-1:] in ".!?" else 3
+                scenes = scene_changes or []
+                visual_bonus = min(8, sum(1 for stamp in scenes if start + 1.5 < stamp < end - 1.5) * 2)
+                boundary_bonus = 4 if any(abs(stamp - start) <= 1.5 for stamp in scenes) else 0
                 filler_penalty = min(10, sum(tokens.count(filler) for filler in ("um", "uh", "erm")) * 2)
-                score = int(max(35, min(96, 40 + hook_bonus + keyword_score + punctuation_score + density_score + duration_score + context_score - filler_penalty)))
+                score = int(max(35, min(99, 40 + hook_bonus + keyword_score + punctuation_score + density_score + duration_score + context_score + visual_bonus + boundary_bonus - filler_penalty)))
                 candidates.append({
                     "start": round(start, 2), "end": round(end, 2), "duration": round(duration, 1),
                     "text": text, "score": score, "category": config["label"],
                     "title": make_title(text, template),
+                    "visual_cues": sum(1 for stamp in (scene_changes or []) if start < stamp < end),
                 })
                 # Keep the search bounded; one more sentence may make a better clip.
                 if duration >= target:
@@ -267,6 +316,66 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
             break
     selected.sort(key=lambda item: item["start"])
     return selected
+
+
+def detect_scene_changes(path: Path) -> list[float]:
+    """Use FFmpeg's scene-change detector as a lightweight visual signal."""
+    command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode not in (0, 255):
+        return []
+    return sorted({round(float(match), 2) for match in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr)})
+
+
+def apply_prompt_edit_plan(candidates: list[dict], transcript: str, prompt: str, template: str) -> tuple[list[dict], str | None]:
+    """Optionally rerank candidate moments using an OpenAI-compatible chat completion API."""
+    if not prompt.strip():
+        return candidates, None
+    if not AI_BASE_URL or not AI_API_KEY:
+        return candidates, "Your editing brief was saved, but AI reranking is not configured. Set AI_BASE_URL and AI_API_KEY to enable it."
+    payload = {
+        "model": AI_MODEL,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": "You are a short-form video editor. Select only from supplied candidate clips. Return JSON with a 'ranked' array of objects containing 'index' (zero-based candidate index), 'title' (short, accurate title), 'reason' (one concise sentence), and 'score' (integer 1-100). Never invent quotes or timestamps. Respect the user's editing brief and chosen template."},
+            {"role": "user", "content": json.dumps({"template": template, "editing_brief": prompt[:1200], "transcript_context": transcript[:10000], "candidates": [{"index": i, "start": c["start"], "end": c["end"], "score": c["score"], "text": c["text"][:900]} for i, c in enumerate(candidates[:40])]}, ensure_ascii=False)},
+        ],
+    }
+    request = urllib.request.Request(
+        f"{AI_BASE_URL}/chat/completions", data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+        ranked = []
+        seen = set()
+        for item in parsed.get("ranked", []):
+            index = int(item.get("index", -1))
+            if index < 0 or index >= min(40, len(candidates)) or index in seen:
+                continue
+            seen.add(index)
+            candidate = dict(candidates[index])
+            candidate["score"] = max(1, min(100, int(item.get("score", candidate["score"]))))
+            candidate["title"] = str(item.get("title") or candidate["title"])[:88]
+            candidate["reason"] = str(item.get("reason") or "Selected to match your editing brief.")[:300]
+            ranked.append(candidate)
+        if not ranked:
+            return candidates, "The AI response did not contain valid clip selections, so Cutflow kept its automatic ranking."
+        ranked.sort(key=lambda item: item["score"], reverse=True)
+        selected = []
+        for candidate in ranked:
+            if not any(candidate["start"] < old["end"] - 5 and candidate["end"] > old["start"] + 5 for old in selected):
+                selected.append(candidate)
+        return selected, None
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError, IndexError) as exc:
+        return candidates, f"AI reranking was unavailable, so Cutflow kept its automatic ranking ({str(exc)[:180]})."
 
 
 def make_title(text: str, template: str) -> str:
@@ -351,8 +460,14 @@ def process_job(job_id: str) -> None:
         metadata = probe_video(source)
         update_job(job_id, progress=9, stage="Analyzing audio", message=f"Video is {metadata['duration'] / 60:.1f} minutes long.", video=metadata)
         words, transcript, language = transcribe(source, job_id)
-        update_job(job_id, progress=34, stage="Finding highlights", message="Ranking moments against your chosen template.", transcript_preview=transcript[:1200], language=language)
-        candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], job["clip_count"])
+        update_job(job_id, progress=28, stage="Analyzing visuals", message="Detecting scene changes to help find stronger moments.", transcript_preview=transcript[:1200], language=language)
+        scene_changes = detect_scene_changes(source)
+        update_job(job_id, progress=34, stage="Finding highlights", message=f"Ranking moments with speech and {len(scene_changes)} detected scene changes.", transcript_preview=transcript[:1200], language=language, scene_change_count=len(scene_changes))
+        candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], max(job["clip_count"] * 5, job["clip_count"]), scene_changes)
+        candidates, ai_warning = apply_prompt_edit_plan(candidates, transcript, job.get("edit_prompt", ""), job["template"])
+        if ai_warning:
+            update_job(job_id, warning=ai_warning)
+        candidates = candidates[:job["clip_count"]]
         if not candidates:
             raise RuntimeError("No usable moments were found. Try a longer video with clear speech or adjust the duration range.")
         output_dir = OUTPUTS / job_id
@@ -382,7 +497,7 @@ def process_job(job_id: str) -> None:
         pass
 
 
-def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None) -> dict:
+def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "") -> dict:
     if template not in TEMPLATES:
         raise HTTPException(400, "Choose a valid template.")
     if aspect_ratio not in {"9:16", "1:1", "16:9"}:
@@ -395,11 +510,12 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
         "message": "Your video is queued for analysis.", "template": template,
         "template_label": TEMPLATES[template]["label"], "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
-        "source_path": source_path, "source_url": source_url, "clips": [],
+        "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
         JOBS[job_id] = job
+        persist_job(job)
     POOL.submit(process_job, job_id)
     return public_job(job)
 
@@ -427,6 +543,7 @@ async def upload_job(
     clip_count: int = Form(3),
     min_duration: int = Form(20),
     max_duration: int = Form(45),
+    edit_prompt: str = Form(""),
 ):
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -450,13 +567,13 @@ async def upload_job(
                 output.write(chunk)
     finally:
         await file.close()
-    job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination))
+    job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt)
     return job
 
 
 @app.post("/api/jobs/url")
 def url_job(payload: URLJob):
-    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url)
+    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url, edit_prompt=payload.edit_prompt)
 
 
 @app.get("/api/jobs")
@@ -487,6 +604,8 @@ def download_clip(job_id: str, filename: str):
 def delete_job(job_id: str):
     with LOCK:
         job = JOBS.pop(job_id, None)
+        with db_connection() as connection:
+            connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     if not job:
         raise HTTPException(404, "Project not found.")
     for directory in (UPLOADS / job_id, OUTPUTS / job_id):
