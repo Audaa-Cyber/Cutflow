@@ -28,7 +28,7 @@
           <div class="tip-icon">✳</div>
           <div><strong>Good clips start with context.</strong><p>Pick a template that matches the video. Cutflow ranks moments around that goal.</p></div>
         </div>
-        <div class="version-row"><span class="version-pill">MVP · 0.1</span><span class="connection"><i></i> Local engine</span></div>
+        <div class="version-row"><span class="version-pill">MVP · 0.2</span><span class="connection"><i></i> Local engine</span></div>
       </div>
     </aside>
 
@@ -112,6 +112,11 @@
             <div class="setting-row duration-row">
               <div><label>Clip duration</label><p>Choose your sweet spot</p></div>
               <div class="duration-fields"><label><span>MIN</span><select id="min-duration"><option value="10">10s</option><option value="15">15s</option><option value="20" selected>20s</option><option value="25">25s</option><option value="30">30s</option></select></label><span class="duration-dash">–</span><label><span>MAX</span><select id="max-duration"><option value="30">30s</option><option value="45" selected>45s</option><option value="60">60s</option><option value="75">75s</option><option value="90">90s</option></select></label></div>
+            </div>
+            <div class="setting-group prompt-group">
+              <label for="edit-prompt">Editing brief <span class="optional-label">OPTIONAL · AI</span></label>
+              <textarea id="edit-prompt" rows="3" maxlength="1200" placeholder="e.g. Find the clearest beginner-friendly explanation, keep the speaker’s full thought, and avoid sponsor mentions."></textarea>
+              <p class="prompt-help">When an OpenAI-compatible model is configured, Cutflow uses this brief to rerank clips and explain its picks. Without a model key, the normal template ranking still works.</p>
             </div>
             <button class="create-button" id="create-button"><span class="button-spark">✳</span><span id="create-button-label">Find my best clips</span><span class="button-arrow">↗</span></button>
             <p class="button-caption">Transcript analysis · Smart selection · Burned-in captions</p>
