@@ -199,7 +199,18 @@ function renderClips(job) {
         <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[job.template])}</span></div>
         <p class="clip-excerpt">${escapeHtml(clip.text || "")}</p>
         ${clip.reason ? `<p class="clip-reason">${escapeHtml(clip.reason)}</p>` : ""}
-        <a class="download-button" href="${escapeHtml(clip.download_url)}" download="${escapeHtml(clip.filename)}"><span>↓</span> Download MP4 <span>· ${formatBytes(clip.size)}</span></a>
+        <div class="quality-download-row">
+          <label class="quality-select-label">QUALITY
+            <select class="quality-select" data-download-url="${escapeHtml(clip.download_url)}" data-filename="${escapeHtml(clip.filename)}" aria-label="Download resolution">
+              <option value="480">480p</option>
+              <option value="720">720p</option>
+              <option value="1080" selected>1080p</option>
+              <option value="2k">2K</option>
+            </select>
+          </label>
+          <a class="download-button" href="${escapeHtml(clip.download_url)}?resolution=1080" download="${escapeHtml(clip.filename)}"><span>↓</span> Download 1080p</a>
+        </div>
+        <p class="quality-download-note">First export at a new quality takes a moment. Later downloads are cached.</p>
       </div>
     </article>`).join("");
 }
@@ -278,6 +289,18 @@ function init() {
     state.aspectRatio = button.dataset.ratio;
     $$(".ratio-option").forEach((item) => item.classList.toggle("selected", item === button));
   }));
+  $("#clips-grid").addEventListener("change", (event) => {
+    const select = event.target.closest(".quality-select");
+    if (!select) return;
+    const resolution = select.value;
+    const card = select.closest(".clip-card");
+    const link = card.querySelector(".download-button");
+    const originalName = select.dataset.filename;
+    const stem = originalName.replace(/\.mp4$/i, "");
+    link.href = `${select.dataset.downloadUrl}?resolution=${encodeURIComponent(resolution)}`;
+    link.download = resolution === "1080" ? originalName : `${stem}-${resolution}.mp4`;
+    link.innerHTML = `<span>↓</span> Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
+  });
   $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
   $("#video-file").addEventListener("change", (event) => setFile(event.target.files?.[0]));
   const dropzone = $("#dropzone");
