@@ -39,6 +39,11 @@ AI_API_KEY = os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
 AI_MODEL = os.getenv("AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be", "vimeo.com", "www.vimeo.com", "player.vimeo.com"}
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+CAPTION_STYLES = {
+    "clean": {"label": "Clean", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0},
+    "pulse": {"label": "Pulse", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 3, "shadow": 2, "glow": 0},
+    "glow": {"label": "Glow", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00302A16", "outline": 3, "shadow": 3, "glow": 1},
+}
 
 TEMPLATES = {
     "podcast": {
@@ -132,6 +137,7 @@ class URLJob(BaseModel):
     clip_count: int = Field(default=3, ge=1, le=8)
     min_duration: int = Field(default=20, ge=10, le=60)
     max_duration: int = Field(default=45, ge=15, le=90)
+    caption_style: str = "clean"
 
 
 def update_job(job_id: str, **updates) -> None:
@@ -406,10 +412,40 @@ def ass_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{whole:02d}.{centiseconds:02d}"
 
 
-def write_ass(path: Path, words: list[dict], start: float, end: float, aspect: str) -> None:
-    width, height = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}[aspect]
-    font_size = 64 if aspect == "9:16" else 48
-    margin_v = 190 if aspect == "9:16" else 90
+def _caption_groups(visible: list[dict], max_chars: int, max_words: int = 4) -> list[list[dict]]:
+    """Create short, readable phrase captions without letting long phrases spill off-frame."""
+    groups: list[list[dict]] = []
+    current: list[dict] = []
+    for word in visible:
+        token = str(word.get("word", "")).strip()
+        if not token:
+            continue
+        gap = float(word["start"]) - float(current[-1]["end"]) if current else 0.0
+        proposed = " ".join([str(item["word"]).strip() for item in current] + [token])
+        punctuation_break = bool(current and re.search(r"[.!?,;:][\"'’)]?$", str(current[-1]["word"])))
+        if current and (len(current) >= max_words or len(proposed) > max_chars or gap > 0.72 or punctuation_break):
+            groups.append(current)
+            current = []
+        current.append(word)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _ass_escape(text: str) -> str:
+    # User speech is untrusted caption text; prevent it from injecting ASS override tags.
+    return text.replace("\\", "").replace("{", "(").replace("}", ")").replace(",", r"\\,")
+
+
+def write_ass(path: Path, words: list[dict], start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
+    dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
+    width, height = dimensions[aspect]
+    style = CAPTION_STYLES.get(caption_style, CAPTION_STYLES["clean"])
+    base_size, max_chars, margin_v = {
+        "9:16": (66, 22, 245),
+        "1:1": (54, 26, 105),
+        "16:9": (52, 38, 92),
+    }[aspect]
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -419,38 +455,47 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cutflow,Arial,{font_size},&H00FFFFFF,&H0000FFFF,&H00101010,&H7A101010,-1,0,1,5,1,2,70,70,{margin_v},1
+Style: Cutflow,{style["font"]},{base_size},{style["base_color"]},&H000000FF,{style["outline_color"]},&H6A101010,-1,0,1,{style["outline"]},{style["shadow"]},2,74,74,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    visible = [w for w in words if w["end"] > start and w["start"] < end]
+    visible = [w for w in words if float(w["end"]) > start and float(w["start"]) < end]
+    groups = _caption_groups(visible, max_chars=max_chars)
     lines = []
-    for index in range(0, len(visible), 5):
-        group = visible[index:index + 5]
-        if not group:
-            continue
-        line_start = max(0, group[0]["start"] - start)
-        line_end = min(end - start, group[-1]["end"] - start + 0.18)
+    for group in groups:
+        line_start = max(0.0, float(group[0]["start"]) - start)
+        line_end = min(end - start, float(group[-1]["end"]) - start + 0.14)
         if line_end <= line_start:
             continue
-        caption = " ".join(w["word"] for w in group)
-        caption = caption.replace("{", "(").replace("}", ")").replace("\\", "")
+        safe_words = [_ass_escape(str(w["word"]).strip()) for w in group]
+        caption = " ".join(safe_words)
+        # Pulse/Glow give the final spoken word a restrained brand-color accent.
+        if caption_style in {"pulse", "glow"} and len(safe_words) > 1:
+            last = safe_words[-1]
+            caption = " ".join(safe_words[:-1]) + f" {{\\\\c{style['accent_color']}}}{last}{{\\\\c{style['base_color']}}}"
+        # Slightly shrink exceptionally long single words rather than clipping them at the edges.
+        if len(caption) > max_chars:
+            size = max(38, int(base_size * max_chars / len(caption)))
+            caption = f"{{\\\\fs{size}}}" + caption + "{\\\\rCutflow}"
+        if style["glow"]:
+            caption = f"{{\\\\blur1.2}}{caption}{{\\\\blur0}}"
         lines.append(f"Dialogue: 0,{ass_time(line_start)},{ass_time(line_end)},Cutflow,,0,0,0,,{caption}")
-    path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text(header + "\\n".join(lines) + "\\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str) -> None:
+def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
     dimensions = {"9:16": "1080:1920", "1:1": "1080:1080", "16:9": "1920:1080"}
     width, height = dimensions[aspect].split(":")
-    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
-    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},ass='{ass_path}'"
+    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\\:")
+    # Subtle finishing only: gentle contrast/saturation and a light detail lift, never a heavy LUT.
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq=contrast=1.04:saturation=1.06:brightness=0.005,unsharp=5:5:0.25:3:3:0.0,ass='{ass_path}'"
     duration = max(1, end - start)
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
         "-vf", vf, "-c:v", "libx264", "-preset", os.getenv("FFMPEG_PRESET", "veryfast"),
-        "-crf", "23", "-c:a", "aac", "-b:a", "160k",
+        "-crf", "21", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
     ]
     run_command(command, timeout=1200)
@@ -489,8 +534,8 @@ def process_job(job_id: str) -> None:
             clip_name = f"cutflow-{index:02d}.mp4"
             output = output_dir / clip_name
             ass_path = output_dir / f"cutflow-{index:02d}.ass"
-            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"])
-            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"])
+            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], job.get("caption_style", "clean"))
+            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], job.get("caption_style", "clean"))
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
@@ -508,11 +553,13 @@ def process_job(job_id: str) -> None:
         pass
 
 
-def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "") -> dict:
+def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "", caption_style: str = "clean") -> dict:
     if template not in TEMPLATES:
         raise HTTPException(400, "Choose a valid template.")
     if aspect_ratio not in {"9:16", "1:1", "16:9"}:
         raise HTTPException(400, "Choose a valid aspect ratio.")
+    if caption_style not in CAPTION_STYLES:
+        raise HTTPException(400, "Choose a valid caption style.")
     if not 1 <= clip_count <= 8:
         raise HTTPException(400, "Choose between 1 and 8 clips.")
     if not (10 <= min_duration < max_duration <= 90):
@@ -523,7 +570,7 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
         "message": "Your video is queued for analysis.", "template": template,
         "template_label": TEMPLATES[template]["label"], "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
-        "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
+        "caption_style": caption_style, "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
@@ -551,6 +598,11 @@ def templates():
     return [{"id": key, "label": value["label"], "description": value["description"]} for key, value in TEMPLATES.items()]
 
 
+@app.get("/api/caption-styles")
+def caption_styles():
+    return [{"id": key, "label": value["label"]} for key, value in CAPTION_STYLES.items()]
+
+
 @app.post("/api/jobs/upload")
 async def upload_job(
     file: UploadFile = File(...),
@@ -560,6 +612,7 @@ async def upload_job(
     min_duration: int = Form(20),
     max_duration: int = Form(45),
     edit_prompt: str = Form(""),
+    caption_style: str = Form("clean"),
 ):
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -584,7 +637,7 @@ async def upload_job(
     finally:
         await file.close()
     try:
-        job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt)
+        job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt, caption_style=caption_style)
     except Exception:
         shutil.rmtree(destination_dir, ignore_errors=True)
         raise
@@ -593,7 +646,7 @@ async def upload_job(
 
 @app.post("/api/jobs/url")
 def url_job(payload: URLJob):
-    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url, edit_prompt=payload.edit_prompt)
+    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url, edit_prompt=payload.edit_prompt, caption_style=payload.caption_style)
 
 
 @app.get("/api/jobs")
