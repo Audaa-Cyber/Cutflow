@@ -705,7 +705,7 @@ def get_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
-def download_clip(job_id: str, filename: str):
+def download_clip(job_id: str, filename: str, resolution: str | None = Query(default=None)):
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise HTTPException(404, "Project not found.")
     with LOCK:
