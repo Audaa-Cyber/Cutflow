@@ -1,6 +1,8 @@
 import os
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="cutflow-tests-")
 os.environ["CUTFLOW_DATA_DIR"] = TEST_DATA_DIR
@@ -9,6 +11,7 @@ os.environ["AI_BASE_URL"] = ""
 os.environ["AI_API_KEY"] = ""
 os.environ["OPENAI_BASE_URL"] = ""
 os.environ["OPENAI_API_KEY"] = ""
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.app import TEMPLATES, apply_prompt_edit_plan, make_title, rank_candidates
 
