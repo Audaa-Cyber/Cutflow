@@ -14,7 +14,7 @@ Cutflow accepts an uploaded video or a supported public video URL, analyzes spee
 - Preview and download rendered clips.
 - No social publishing, live-stream processing, or free-form prompt-driven editing in this version.
 
-## Optional AI editing briefs\n\nCopy `.env.example` to `.env` and set `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` to an OpenAI-compatible chat-completions endpoint. The base URL should include its API prefix if the provider uses one (for example, `/v1`). Keep API keys in `.env` or your deployment secret store, never in frontend code. If the provider is not configured or a request fails, Cutflow falls back to the automatic template ranking and displays a warning. Without provider credentials, the editing-brief field is informational and heuristic selection remains fully usable.\n\n## Run locally with Docker
+## Optional AI editing briefs\n\nCopy `.env.example` to `.env` and set `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` to an OpenAI-compatible chat-completions endpoint. The base URL should include its API prefix if the provider uses one (for example, `/v1`). Keep API keys in `.env` or your deployment secret store, never in frontend code. When prompt reranking is enabled, the editing brief, a transcript excerpt, and candidate clip text are sent to that configured provider; the source video itself remains in the Cutflow instance. If the provider is not configured or a request fails, Cutflow falls back to the automatic template ranking and displays a warning. Without provider credentials, the editing-brief field is informational and heuristic selection remains fully usable.\n\n## Run locally with Docker
 
 Requirements: Docker and Docker Compose.
 
