@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -75,11 +76,19 @@ JOBS: dict[str, dict] = {}
 LOCK = threading.RLock()
 
 
+@contextmanager
 def db_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def persist_job(job: dict) -> None:
