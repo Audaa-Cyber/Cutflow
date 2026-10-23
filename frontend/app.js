@@ -78,6 +78,7 @@ function readSettings() {
     clip_count: Number($("#clip-count").value),
     min_duration: min,
     max_duration: max,
+    edit_prompt: $("#edit-prompt").value.trim(),
   };
 }
 async function createProject() {
@@ -173,6 +174,7 @@ function renderProcessing(job) {
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       ${job.error ? `<p class="error-message">${escapeHtml(job.error)}</p>` : ""}
+      ${job.warning ? `<p class="warning-message">${escapeHtml(job.warning)}</p>` : ""}
     </article>`;
 }
 function renderClips(job) {
@@ -194,6 +196,7 @@ function renderClips(job) {
         <div class="clip-topline"><strong>${escapeHtml(clip.title || `Clip ${index + 1}`)}</strong><span class="score-pill">${Number(clip.score)} / 100</span></div>
         <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[job.template])}</span></div>
         <p class="clip-excerpt">${escapeHtml(clip.text || "")}</p>
+        ${clip.reason ? `<p class="clip-reason">${escapeHtml(clip.reason)}</p>` : ""}
         <a class="download-button" href="${escapeHtml(clip.download_url)}" download="${escapeHtml(clip.filename)}"><span>↓</span> Download MP4 <span>· ${formatBytes(clip.size)}</span></a>
       </div>
     </article>`).join("");

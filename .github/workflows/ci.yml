@@ -17,7 +17,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip fastapi python-multipart pytest
       - name: Check Python syntax
-        run: python -m py_compile backend/app.py
+        run: python -m py_compile backend/app.py tests/test_cutflow.py
+      - name: Run backend tests
+        run: pytest -q
       - name: Check JavaScript syntax
         run: node --check frontend/app.js
