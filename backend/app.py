@@ -434,7 +434,7 @@ def _caption_groups(visible: list[dict], max_chars: int, max_words: int = 4) -> 
 
 def _ass_escape(text: str) -> str:
     # User speech is untrusted caption text; prevent it from injecting ASS override tags.
-    return text.replace("\\", "").replace("{", "(").replace("}", ")").replace(",", r"\\,")
+    return text.replace("\\", "").replace("{", "(").replace("}", ")").replace(",", r"\,")
 
 
 def write_ass(path: Path, words: list[dict], start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
@@ -481,13 +481,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if style["glow"]:
             caption = f"{{\\\\blur1.2}}{caption}{{\\\\blur0}}"
         lines.append(f"Dialogue: 0,{ass_time(line_start)},{ass_time(line_end)},Cutflow,,0,0,0,,{caption}")
-    path.write_text(header + "\\n".join(lines) + "\\n", encoding="utf-8")
+    path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
     dimensions = {"9:16": "1080:1920", "1:1": "1080:1080", "16:9": "1920:1080"}
     width, height = dimensions[aspect].split(":")
-    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\\:")
+    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
     # Subtle finishing only: gentle contrast/saturation and a light detail lift, never a heavy LUT.
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq=contrast=1.04:saturation=1.06:brightness=0.005,unsharp=5:5:0.25:3:3:0.0,ass='{ass_path}'"
     duration = max(1, end - start)
