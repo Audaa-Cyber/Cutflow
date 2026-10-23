@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -33,6 +34,8 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+EXPORT_RESOLUTIONS = {"480", "720", "1080", "2k"}
+EXPORT_LOCK = threading.Lock()
 DB_PATH = Path(os.getenv("CUTFLOW_DB_PATH", str(DATA / "cutflow.sqlite3")))
 AI_BASE_URL = (os.getenv("AI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").rstrip("/")
 AI_API_KEY = os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
@@ -210,14 +213,20 @@ def download_source(url: str, job_id: str) -> Path:
     return path
 
 
-def transcribe(path: Path, job_id: str) -> tuple[list[dict], str, str]:
-    update_job(job_id, progress=14, stage="Transcribing speech", message="Listening for words and timestamps.")
+@lru_cache(maxsize=1)
+def get_whisper_model():
+    """Load Whisper once per server process instead of reloading its weights for every project."""
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise RuntimeError("Speech transcription is unavailable. Install backend requirements and restart.") from exc
-    model = WhisperModel(WHISPER_MODEL, device=os.getenv("WHISPER_DEVICE", "cpu"), compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"))
-    segments, info = model.transcribe(str(path), word_timestamps=True, vad_filter=True, beam_size=3)
+    return WhisperModel(WHISPER_MODEL, device=os.getenv("WHISPER_DEVICE", "cpu"), compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"), cpu_threads=max(1, int(os.getenv("WHISPER_CPU_THREADS", str(os.cpu_count() or 4)))), num_workers=1)
+
+
+def transcribe(path: Path, job_id: str) -> tuple[list[dict], str, str]:
+    update_job(job_id, progress=14, stage="Transcribing speech", message="Listening for words and timestamps.")
+    model = get_whisper_model()
+    segments, info = model.transcribe(str(path), word_timestamps=True, vad_filter=True, beam_size=1, condition_on_previous_text=False)
     words: list[dict] = []
     transcript_parts: list[str] = []
     for segment in segments:
@@ -336,7 +345,7 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
 
 def detect_scene_changes(path: Path) -> list[float]:
     """Use FFmpeg's scene-change detector as a lightweight visual signal."""
-    command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
+    command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "fps=2,scale=320:-2:flags=fast_bilinear,select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired):
@@ -497,6 +506,36 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
         "-vf", vf, "-c:v", "libx264", "-preset", os.getenv("FFMPEG_PRESET", "veryfast"),
         "-crf", "21", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
+    ]
+    run_command(command, timeout=1200)
+
+
+
+def export_dimensions(aspect: str, resolution: str) -> tuple[int, int]:
+    """Return consistent, even output dimensions for the requested quality tier."""
+    dimensions = {
+        "9:16": {"480": (480, 854), "720": (720, 1280), "1080": (1080, 1920), "2k": (1440, 2560)},
+        "1:1": {"480": (480, 480), "720": (720, 720), "1080": (1080, 1080), "2k": (1440, 1440)},
+        "16:9": {"480": (854, 480), "720": (1280, 720), "1080": (1920, 1080), "2k": (2560, 1440)},
+    }
+    if resolution.lower() not in EXPORT_RESOLUTIONS:
+        raise HTTPException(400, "Choose 480p, 720p, 1080p, or 2K.")
+    if aspect not in dimensions:
+        raise HTTPException(400, "This project has an unsupported aspect ratio.")
+    return dimensions[aspect][resolution.lower()]
+
+
+def render_export(source: Path, output: Path, aspect: str, resolution: str) -> None:
+    """Create a cached quality variant from the already-captioned master clip."""
+    width, height = export_dimensions(aspect, resolution)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(source),
+        "-vf", f"scale={width}:{height}:flags=lanczos,format=yuv420p",
+        "-c:v", "libx264", "-preset", os.getenv("EXPORT_FFMPEG_PRESET", "veryfast"),
+        "-crf", "21" if resolution.lower() in {"1080", "2k"} else "23",
+        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(output),
     ]
     run_command(command, timeout=1200)
 
@@ -666,7 +705,7 @@ def get_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
-def download_clip(job_id: str, filename: str):
+def download_clip(job_id: str, filename: str, resolution: str | None = Query(default=None)):
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise HTTPException(404, "Project not found.")
     with LOCK:
@@ -677,7 +716,20 @@ def download_clip(job_id: str, filename: str):
     path = OUTPUTS / job_id / filename
     if not path.is_file():
         raise HTTPException(404, "Clip is not ready or does not exist.")
-    return FileResponse(path, media_type="video/mp4", filename=filename)
+    if resolution is None or resolution.lower() == "1080":
+        return FileResponse(path, media_type="video/mp4", filename=filename)
+    if resolution.lower() not in EXPORT_RESOLUTIONS:
+        raise HTTPException(400, "Choose 480p, 720p, 1080p, or 2K.")
+    with LOCK:
+        job = JOBS.get(job_id)
+        aspect = job.get("aspect_ratio", "9:16") if job else "9:16"
+    width, height = export_dimensions(aspect, resolution.lower())
+    export_path = OUTPUTS / job_id / "exports" / f"{Path(filename).stem}-{resolution.lower()}.mp4"
+    with EXPORT_LOCK:
+        if not export_path.is_file():
+            render_export(path, export_path, aspect, resolution.lower())
+    export_name = f"{Path(filename).stem}-{resolution.lower()}.mp4"
+    return FileResponse(export_path, media_type="video/mp4", filename=export_name, headers={"X-Cutflow-Width": str(width), "X-Cutflow-Height": str(height)})
 
 
 @app.delete("/api/jobs/{job_id}")

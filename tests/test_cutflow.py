@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
-from backend.app import CAPTION_STYLES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates, render_clip, write_ass
+from backend.app import CAPTION_STYLES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
 
 
 def sample_words():
@@ -104,6 +104,26 @@ class CutflowTests(unittest.TestCase):
         self.assertIn("ass=", filter_arg)
         self.assertIn("-c:a", command)
         self.assertIn("160k", command)
+
+    def test_quality_export_dimensions_cover_all_aspects_and_resolutions(self):
+        expected = {("9:16", "480"): (480, 854), ("9:16", "720"): (720, 1280), ("9:16", "1080"): (1080, 1920), ("9:16", "2k"): (1440, 2560), ("1:1", "2k"): (1440, 1440), ("16:9", "480"): (854, 480), ("16:9", "720"): (1280, 720), ("16:9", "1080"): (1920, 1080), ("16:9", "2k"): (2560, 1440)}
+        for (aspect, quality), dimensions in expected.items():
+            with self.subTest(aspect=aspect, quality=quality):
+                self.assertEqual(export_dimensions(aspect, quality), dimensions)
+        with self.assertRaises(HTTPException):
+            export_dimensions("9:16", "4k")
+
+    def test_quality_export_uses_fast_cached_variant_render_pipeline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "exports" / "clip-720.mp4"
+            with patch("backend.app.run_command") as run:
+                render_export(Path("master.mp4"), output, "9:16", "720")
+            command = run.call_args.args[0]
+            self.assertIn("720:1280:flags=lanczos", command[command.index("-vf") + 1])
+            self.assertIn("veryfast", command)
+            self.assertIn("-c:a", command)
+            self.assertIn("160k", command)
+            self.assertEqual(command[-1], str(output))
 
     def test_prompt_falls_back_cleanly_when_ai_not_configured(self):
         candidates = [{"start": 1, "end": 12, "score": 60, "title": "A clip", "text": "sample"}]
