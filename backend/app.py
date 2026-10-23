@@ -530,7 +530,7 @@ def public_job(job: dict) -> dict:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "cutflow", "version": "0.1.0"}
+    return {"ok": True, "service": "cutflow", "version": "0.2.0"}
 
 
 @app.get("/api/templates")
