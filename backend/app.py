@@ -31,6 +31,7 @@ for directory in (UPLOADS, OUTPUTS, FRONTEND):
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
+MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 DB_PATH = Path(os.getenv("CUTFLOW_DB_PATH", str(DATA / "cutflow.sqlite3")))
 AI_BASE_URL = (os.getenv("AI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").rstrip("/")
@@ -526,6 +527,9 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
+        active_jobs = sum(1 for existing in JOBS.values() if existing.get("status") in {"queued", "processing"})
+        if active_jobs >= MAX_ACTIVE_JOBS:
+            raise HTTPException(429, f"Cutflow is busy. Wait for a project to finish before starting another (limit: {MAX_ACTIVE_JOBS} active jobs).")
         JOBS[job_id] = job
         persist_job(job)
     POOL.submit(process_job, job_id)
@@ -579,7 +583,11 @@ async def upload_job(
                 output.write(chunk)
     finally:
         await file.close()
-    job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt)
+    try:
+        job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt)
+    except Exception:
+        shutil.rmtree(destination_dir, ignore_errors=True)
+        raise
     return job
 
 
@@ -595,6 +603,8 @@ def list_jobs():
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
     with LOCK:
         job = JOBS.get(job_id)
         if not job:
@@ -604,6 +614,11 @@ def get_job(job_id: str):
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
 def download_clip(job_id: str, filename: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        if job_id not in JOBS:
+            raise HTTPException(404, "Project not found.")
     if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.mp4", filename):
         raise HTTPException(400, "Invalid clip filename.")
     path = OUTPUTS / job_id / filename
@@ -614,6 +629,8 @@ def download_clip(job_id: str, filename: str):
 
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
     with LOCK:
         job = JOBS.pop(job_id, None)
         with db_connection() as connection:
