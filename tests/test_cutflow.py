@@ -13,7 +13,9 @@ os.environ["OPENAI_BASE_URL"] = ""
 os.environ["OPENAI_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fastapi import HTTPException\n\nfrom backend.app import TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates
+from fastapi import HTTPException
+
+from backend.app import TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates
 
 
 def sample_words():
