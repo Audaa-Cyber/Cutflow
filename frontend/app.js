@@ -1,6 +1,7 @@
 const state = {
   template: "podcast",
   aspectRatio: "9:16",
+  captionStyle: "clean",
   sourceMode: "upload",
   file: null,
   jobs: [],
@@ -75,6 +76,7 @@ function readSettings() {
   return {
     template: state.template,
     aspect_ratio: state.aspectRatio,
+    caption_style: state.captionStyle,
     clip_count: Number($("#clip-count").value),
     min_duration: min,
     max_duration: max,
@@ -276,6 +278,7 @@ function init() {
     state.aspectRatio = button.dataset.ratio;
     $$(".ratio-option").forEach((item) => item.classList.toggle("selected", item === button));
   }));
+  $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
   $("#video-file").addEventListener("change", (event) => setFile(event.target.files?.[0]));
   const dropzone = $("#dropzone");
   ["dragenter", "dragover"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.add("dragover"); }));
