@@ -716,7 +716,20 @@ def download_clip(job_id: str, filename: str):
     path = OUTPUTS / job_id / filename
     if not path.is_file():
         raise HTTPException(404, "Clip is not ready or does not exist.")
-    return FileResponse(path, media_type="video/mp4", filename=filename)
+    if resolution is None or resolution.lower() == "1080":
+        return FileResponse(path, media_type="video/mp4", filename=filename)
+    if resolution.lower() not in EXPORT_RESOLUTIONS:
+        raise HTTPException(400, "Choose 480p, 720p, 1080p, or 2K.")
+    with LOCK:
+        job = JOBS.get(job_id)
+        aspect = job.get("aspect_ratio", "9:16") if job else "9:16"
+    width, height = export_dimensions(aspect, resolution.lower())
+    export_path = OUTPUTS / job_id / "exports" / f"{Path(filename).stem}-{resolution.lower()}.mp4"
+    with EXPORT_LOCK:
+        if not export_path.is_file():
+            render_export(path, export_path, aspect, resolution.lower())
+    export_name = f"{Path(filename).stem}-{resolution.lower()}.mp4"
+    return FileResponse(export_path, media_type="video/mp4", filename=export_name, headers={"X-Cutflow-Width": str(width), "X-Cutflow-Height": str(height)})
 
 
 @app.delete("/api/jobs/{job_id}")
