@@ -11,6 +11,8 @@ Cutflow accepts an uploaded video or a supported public video URL, analyzes spee
 - Transcribe speech with faster-whisper.
 - Rank candidate moments using transcript signals, template-specific heuristics, and FFmpeg scene-change cues.\n- Add an optional natural-language editing brief; when an OpenAI-compatible chat-completions provider is configured, use it to rerank candidates and explain clip selections.\n- Persist job metadata in SQLite and recover the project library across restarts.\n- Limit the number of queued/processing projects to protect CPU and memory; tune with `MAX_ACTIVE_JOBS`.
 - Render vertical, square, or landscape MP4 clips with burned-in subtitles using FFmpeg.
+- Render safer phrase-grouped captions with responsive sizing and three built-in looks: Clean, Pulse, and Glow.
+- Apply restrained contrast, saturation, and sharpening to give exported footage a more finished look without changing the original editing workflow.
 - Preview and download rendered clips.
 - No social publishing, live-stream processing, or free-form prompt-driven editing in this version.
 
