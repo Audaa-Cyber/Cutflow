@@ -189,11 +189,17 @@ function renderProcessing(job) {
   $("#processing-percent").textContent = `${percent}%`;
   $("#processing-subtitle").textContent = job.message || job.stage || "Processing";
   const statusText = job.status === "completed" ? "Completed" : job.status === "failed" ? "Needs attention" : job.status === "cancelled" ? "Cancelled" : job.status === "queued" ? "In queue" : "In progress";
-  const icon = job.status === "failed" ? "!" : job.status === "completed" ? "✓" : job.status === "cancelled" ? "✕" : "✳";
+  const icon = job.status === "failed"
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+    : job.status === "completed"
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+    : job.status === "cancelled"
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/></svg>';
   const canCancel = job.status === "queued" || job.status === "processing";
   container.innerHTML = `
     <article class="processing-card ${job.status}">
-      <button class="close-processing-card-btn" data-dismiss-job="${escapeHtml(job.id)}" aria-label="Remove from view" title="Remove">×</button>
+      <button class="close-processing-card-btn" data-dismiss-job="${escapeHtml(job.id)}" aria-label="Remove from view" title="Remove"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       <div class="processing-head">
         <div class="processing-icon ${job.status === 'cancelled' ? 'cancelled' : ''}">${icon}</div>
         <div class="processing-info">
@@ -204,8 +210,8 @@ function renderProcessing(job) {
       </div>
       <div class="progress-track"><div class="progress-fill ${job.status === 'cancelled' ? 'cancelled' : ''}" style="width:${percent}%"></div></div>
       <div class="processing-actions">
-        ${canCancel ? `<button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}">✕ Cancel processing</button>` : ""}
-        ${job.status === "cancelled" || job.status === "failed" ? `<button class="dismiss-processing-btn" data-dismiss-job="${escapeHtml(job.id)}">✕ Remove</button>` : ""}
+        ${canCancel ? `<button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Cancel processing</button>` : ""}
+        ${job.status === "cancelled" || job.status === "failed" ? `<button class="dismiss-processing-btn" data-dismiss-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Remove</button>` : ""}
       </div>
       ${job.style_match ? `
         <div class="style-match-badge ${job.style_match.matched ? "matched" : "mismatch"}">
@@ -240,7 +246,7 @@ function renderClips(job) {
         <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[clip.clip_style || job.template] || job.template_label)}</span></div>
         ${clip.finishing_label ? `
         <div class="clip-finishing-pill" title="${escapeHtml(clip.finishing_desc || "")}">
-          <span class="finishing-spark">✦</span>
+          <span class="finishing-spark"><svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true"><polygon points="12,2 15,9 22,12 15,15 12,22 9,15 2,12 9,9"/></svg></span>
           <strong>${escapeHtml(clip.finishing_label)}</strong>
           <span>${escapeHtml(clip.finishing_desc || "")}</span>
         </div>` : ""}
@@ -255,7 +261,7 @@ function renderClips(job) {
               <option value="2k">2K</option>
             </select>
           </label>
-          <a class="download-button" href="${escapeHtml(clip.download_url)}?resolution=1080" download="${escapeHtml(clip.filename)}"><span>↓</span> Download 1080p</a>
+          <a class="download-button" href="${escapeHtml(clip.download_url)}?resolution=1080" download="${escapeHtml(clip.filename)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download 1080p</a>
         </div>
         <div class="subtitles-download-row">
           <span class="subtitles-label">SUBTITLES:</span>
@@ -282,7 +288,7 @@ function renderProjects() {
       && (filter === "all" || (filter === "processing" ? ["queued", "processing"].includes(job.status) : job.status === filter));
   });
   if (!filtered.length) {
-    list.innerHTML = `<div class="empty-state"><div class="empty-symbol">▦</div><strong>${state.jobs.length ? "No matching projects" : "Your library is waiting"}</strong><p>${state.jobs.length ? "Try another search or status filter." : "Start with a video and your first clips will show up here."}</p></div>`;
+    list.innerHTML = `<div class="empty-state"><div class="empty-symbol"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div><strong>${state.jobs.length ? "No matching projects" : "Your library is waiting"}</strong><p>${state.jobs.length ? "Try another search or status filter." : "Start with a video and your first clips will show up here."}</p></div>`;
     return;
   }
   list.innerHTML = filtered.map((job) => {
@@ -292,12 +298,12 @@ function renderProjects() {
     const date = new Date((job.created_at || Date.now() / 1000) * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const canCancel = job.status === "queued" || job.status === "processing";
     return `<article class="project-row">
-      <div class="project-icon">▧</div>
+      <div class="project-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg></div>
       <div class="project-main"><strong>${escapeHtml(source)} · ${escapeHtml(job.template_label || templateNames[job.template] || "Video")}</strong><span>${escapeHtml(date)} · ${job.clips?.length || 0} clips · ${escapeHtml(job.aspect_ratio || "9:16")}</span></div>
       <span class="status-pill ${escapeHtml(job.status)}">${escapeHtml(status)}</span>
       ${canCancel ? `<button class="project-action cancel-action" data-cancel-job="${escapeHtml(job.id)}">Cancel</button>` : ""}
       <button class="project-action" data-open-job="${escapeHtml(job.id)}">Open</button>
-      <button class="project-action" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete project">×</button>
+      <button class="project-action" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete project"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </article>`;
   }).join("");
 }
@@ -399,9 +405,27 @@ function init() {
     const stem = originalName.replace(/\.mp4$/i, "");
     link.href = `${select.dataset.downloadUrl}?resolution=${encodeURIComponent(resolution)}`;
     link.download = resolution === "1080" ? originalName : `${stem}-${resolution}.mp4`;
-    link.innerHTML = `<span>↓</span> Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
+    link.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
-  $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
+
+  // Visual 9:16 Caption Style Cards
+  $$(".caption-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const style = card.dataset.captionStyle;
+      state.captionStyle = style;
+      $$(".caption-card").forEach((c) => c.classList.toggle("selected", c === card));
+      const select = $("#caption-style");
+      if (select) select.value = style;
+    });
+  });
+
+  const captionSelect = $("#caption-style");
+  if (captionSelect) {
+    captionSelect.addEventListener("change", (event) => {
+      state.captionStyle = event.target.value;
+      $$(".caption-card").forEach((c) => c.classList.toggle("selected", c.dataset.captionStyle === event.target.value));
+    });
+  }
   $$(".caption-mode-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       const mode = tab.dataset.captionMode;
