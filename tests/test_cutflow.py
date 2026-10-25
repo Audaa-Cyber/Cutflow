@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
-from backend.app import CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, identify_video_style, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
+from backend.app import CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, cancel_job, create_job, db_connection, download_clip, identify_video_style, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
 
 
 def sample_words():
@@ -204,6 +204,16 @@ class CutflowTests(unittest.TestCase):
         job = create_job("auto", "9:16", 3, 20, 45, source_path="dummy.mp4")
         self.assertEqual(job["template"], "auto")
         self.assertEqual(job["template_label"], "Smart Auto-Detect")
+
+    def test_cancel_job_cancels_queued_or_processing_job(self):
+        job = create_job("podcast", "9:16", 2, 20, 45, source_path="dummy.mp4")
+        cancelled = cancel_job(job["id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled["stage"], "Cancelled")
+
+    def test_cancel_nonexistent_job_raises_404(self):
+        with self.assertRaises(HTTPException):
+            cancel_job("0" * 32)
 
 
 if __name__ == "__main__":

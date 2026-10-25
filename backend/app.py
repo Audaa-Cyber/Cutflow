@@ -212,12 +212,40 @@ def update_job(job_id: str, **updates) -> None:
             persist_job(JOBS[job_id])
 
 
-def run_command(command: list[str], timeout: int = 900) -> str:
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "Command failed")[-1800:]
+class JobCancelledException(Exception):
+    """Raised when an ongoing job is cancelled by the user."""
+    pass
+
+
+CANCELLED_JOBS: set[str] = set()
+ACTIVE_PROCESSES: dict[str, subprocess.Popen] = {}
+
+
+def run_command(command: list[str], timeout: int = 900, job_id: str | None = None) -> str:
+    if job_id and (job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled"):
+        raise JobCancelledException("Processing was cancelled by user.")
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if job_id:
+        with LOCK:
+            ACTIVE_PROCESSES[job_id] = process
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise
+    finally:
+        if job_id:
+            with LOCK:
+                ACTIVE_PROCESSES.pop(job_id, None)
+    if job_id and (job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled"):
+        raise JobCancelledException("Processing was cancelled by user.")
+    if process.returncode != 0:
+        if job_id and (job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled"):
+            raise JobCancelledException("Processing was cancelled by user.")
+        detail = (stderr or stdout or "Command failed")[-1800:]
         raise RuntimeError(detail)
-    return completed.stdout
+    return stdout
 
 
 def probe_video(path: Path) -> dict:
@@ -723,7 +751,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast") -> None:
+def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None) -> None:
     dimensions = {"9:16": "1080:1920", "1:1": "1080:1080", "16:9": "1920:1080"}
     width, height = dimensions[aspect].split(":")
     ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
@@ -740,7 +768,7 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
         "-crf", "21", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
     ]
-    run_command(command, timeout=1200)
+    run_command(command, timeout=1200, job_id=job_id)
 
 
 
@@ -774,9 +802,17 @@ def render_export(source: Path, output: Path, aspect: str, resolution: str) -> N
 
 
 def process_job(job_id: str) -> None:
-    job = JOBS[job_id]
+    job = JOBS.get(job_id)
+    if not job or job_id in CANCELLED_JOBS or job.get("status") == "cancelled":
+        return
+
+    def check_cancelled():
+        if job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled":
+            raise JobCancelledException("Processing was cancelled by user.")
+
     source: Path | None = None
     try:
+        check_cancelled()
         update_job(job_id, status="processing", progress=4, stage="Preparing video", message="Checking the source video.")
         if job.get("source_url"):
             source = download_source(job["source_url"], job_id)
@@ -784,50 +820,54 @@ def process_job(job_id: str) -> None:
             source = Path(job["source_path"])
         if not source.exists():
             raise RuntimeError("The source video could not be found.")
+        check_cancelled()
         metadata = probe_video(source)
+        check_cancelled()
         update_job(job_id, progress=9, stage="Analyzing audio", message=f"Video is {metadata['duration'] / 60:.1f} minutes long.", video=metadata)
         words, transcript, language = transcribe(source, job_id)
+        check_cancelled()
         update_job(job_id, progress=28, stage="Analyzing visuals", message="Detecting scene changes to help find stronger moments.", transcript_preview=transcript[:1200], language=language)
         scene_changes = detect_scene_changes(source)
+        check_cancelled()
         update_job(job_id, progress=34, stage="Finding highlights", message=f"Ranking moments with speech and {len(scene_changes)} detected scene changes.", transcript_preview=transcript[:1200], language=language, scene_change_count=len(scene_changes))
 
-        # Content Style Identification & Matching
+        # Automatic Content Style Identification & Matching
         style_info = identify_video_style(words, transcript, scene_changes, metadata["duration"], title=source.stem)
         detected_style = style_info["best_style"]
         detected_label = TEMPLATES[detected_style]["label"]
+        selected_style = job["template"]
+        selected_label = job["template_label"]
 
-        if job["template"] == "auto":
-            # Smart Auto-Detect: automatically adopt the identified best style
+        # Automatically adopt the detected style if confident or if template was auto
+        if selected_style == "auto" or (selected_style != detected_style and style_info["confidence"] >= 0.60):
             job["template"] = detected_style
             job["template_label"] = detected_label
             style_match = {
                 "matched": True,
-                "is_auto": True,
+                "auto_detected": True,
                 "detected_style": detected_style,
                 "detected_label": detected_label,
+                "original_style": selected_style,
                 "confidence": style_info["confidence"],
                 "reasons": style_info["reasons"],
                 "scores": style_info["scores"],
-                "message": f"Auto-detected {detected_label} ({int(style_info['confidence'] * 100)}% match).",
+                "message": f"Auto-detected {detected_label} ({int(style_info['confidence'] * 100)}% match) · Tailored {detected_label} finishing automatically applied.",
             }
         else:
-            is_match = (job["template"] == detected_style)
-            mismatch_warning = None
-            if not is_match and style_info["confidence"] >= 0.55:
-                mismatch_warning = (
-                    f"This video appears to be {detected_label} content, but you selected {job['template_label']}. "
-                    f"We applied tailored {job['template_label']} finishing as requested."
-                )
+            is_match = (selected_style == detected_style)
             style_match = {
                 "matched": is_match,
-                "is_auto": False,
+                "auto_detected": False,
                 "detected_style": detected_style,
                 "detected_label": detected_label,
                 "confidence": style_info["confidence"],
                 "reasons": style_info["reasons"],
                 "scores": style_info["scores"],
-                "warning": mismatch_warning,
-                "message": f"Perfect match! Content identified as {detected_label}." if is_match else None,
+                "message": (
+                    f"Content verified as {detected_label} ({int(style_info['confidence'] * 100)}% match) · Tailored {detected_label} finishing applied."
+                    if is_match
+                    else f"Content identified as {detected_label} · Applying chosen {selected_label} style."
+                ),
             }
 
         update_job(
@@ -838,9 +878,8 @@ def process_job(job_id: str) -> None:
             detected_style=detected_style,
             detected_label=detected_label,
         )
-        if style_match.get("warning") and not job.get("warning"):
-            update_job(job_id, warning=style_match["warning"])
 
+        check_cancelled()
         candidate_limit = max(job["clip_count"] * 5, job["clip_count"]) if job.get("edit_prompt", "").strip() else job["clip_count"]
         candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], candidate_limit, scene_changes)
         candidates, ai_warning = apply_prompt_edit_plan(candidates, transcript, job.get("edit_prompt", ""), job["template"])
@@ -861,6 +900,7 @@ def process_job(job_id: str) -> None:
         completed = []
         profile = STYLE_PROFILES.get(job["template"], STYLE_PROFILES["podcast"])
         for index, candidate in enumerate(candidates, start=1):
+            check_cancelled()
             update_job(job_id, progress=35 + int((index - 1) / len(candidates) * 60), stage=f"Rendering clip {index} of {len(candidates)}", message=f"Creating {job['aspect_ratio']} video with {profile['label']} finishing.")
             clip_name = f"cutflow-{index:02d}.mp4"
             output = output_dir / clip_name
@@ -869,7 +909,8 @@ def process_job(job_id: str) -> None:
             if caption_style_to_use == "clean" and profile.get("default_caption"):
                 caption_style_to_use = profile["default_caption"]
             write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use)
-            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"])
+            check_cancelled()
+            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id)
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
@@ -882,12 +923,19 @@ def process_job(job_id: str) -> None:
                 "clip_style": job["template"],
             })
             update_job(job_id, clips=completed, progress=35 + int(index / len(candidates) * 60))
+        check_cancelled()
         update_job(job_id, status="completed", progress=100, stage="Ready to download", message=f"Created {len(completed)} clips.", clips=completed, transcript_preview=transcript[:1200], language=language)
+    except JobCancelledException:
+        update_job(job_id, status="cancelled", progress=100, stage="Cancelled", message="Processing was cancelled by user.")
     except Exception as exc:
-        update_job(job_id, status="failed", progress=100, stage="Needs attention", error=str(exc)[:1500], message="Processing failed. Review the error and try again.")
+        if job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled":
+            update_job(job_id, status="cancelled", progress=100, stage="Cancelled", message="Processing was cancelled by user.")
+        else:
+            update_job(job_id, status="failed", progress=100, stage="Needs attention", error=str(exc)[:1500], message="Processing failed. Review the error and try again.")
     finally:
-        # Keep source files for debugging and future re-renders; user data is local to this instance.
-        pass
+        CANCELLED_JOBS.discard(job_id)
+        with LOCK:
+            ACTIVE_PROCESSES.pop(job_id, None)
 
 
 def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "", caption_style: str = "clean") -> dict:
@@ -1031,10 +1079,48 @@ def download_clip(job_id: str, filename: str, resolution: str | None = Query(def
     return FileResponse(export_path, media_type="video/mp4", filename=export_name, headers={"X-Cutflow-Width": str(width), "X-Cutflow-Height": str(height)})
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, "Project not found.")
+        if job["status"] in {"completed", "failed", "cancelled"}:
+            return public_job(job)
+        CANCELLED_JOBS.add(job_id)
+        proc = ACTIVE_PROCESSES.get(job_id)
+        if proc:
+            try:
+                proc.terminate()
+                time.sleep(0.05)
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
+        job.update(
+            status="cancelled",
+            stage="Cancelled",
+            progress=100,
+            message="Processing was cancelled by user.",
+            updated_at=time.time(),
+        )
+        persist_job(job)
+        return public_job(job)
+
+
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise HTTPException(404, "Project not found.")
+    CANCELLED_JOBS.add(job_id)
+    proc = ACTIVE_PROCESSES.get(job_id)
+    if proc:
+        try:
+            proc.kill()
+        except Exception:
+            pass
     with LOCK:
         job = JOBS.pop(job_id, None)
         with db_connection() as connection:

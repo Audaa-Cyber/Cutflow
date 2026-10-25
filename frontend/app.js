@@ -150,6 +150,10 @@ async function pollJob(jobId) {
       showToast(job.error || "Processing failed. Check the project status.");
       return;
     }
+    if (job.status === "cancelled") {
+      showToast("Processing was cancelled.");
+      return;
+    }
     state.pollTimer = setTimeout(() => pollJob(jobId), 2200);
   } catch (error) {
     $("#processing-subtitle").textContent = error.message || "Checking project status…";
@@ -168,20 +172,29 @@ function renderProcessing(job) {
   const percent = Number(job.progress || 0);
   $("#processing-percent").textContent = `${percent}%`;
   $("#processing-subtitle").textContent = job.message || job.stage || "Processing";
-  const statusText = job.status === "completed" ? "Completed" : job.status === "failed" ? "Needs attention" : job.status === "queued" ? "In queue" : "In progress";
+  const statusText = job.status === "completed" ? "Completed" : job.status === "failed" ? "Needs attention" : job.status === "cancelled" ? "Cancelled" : job.status === "queued" ? "In queue" : "In progress";
+  const icon = job.status === "failed" ? "!" : job.status === "completed" ? "✓" : job.status === "cancelled" ? "✕" : "✳";
+  const canCancel = job.status === "queued" || job.status === "processing";
   container.innerHTML = `
-    <article class="processing-card">
+    <article class="processing-card ${job.status}">
       <div class="processing-head">
-        <div class="processing-icon">${job.status === "failed" ? "!" : job.status === "completed" ? "✓" : "✳"}</div>
-        <div class="processing-info"><strong>${escapeHtml(job.source_url ? new URL(job.source_url).hostname : (state.file?.name || "Uploaded video"))}</strong><span>${escapeHtml(job.stage || "Waiting")} · ${escapeHtml(statusText)} · ${escapeHtml(job.template_label || templateNames[job.template] || "")}</span></div>
+        <div class="processing-icon ${job.status === 'cancelled' ? 'cancelled' : ''}">${icon}</div>
+        <div class="processing-info">
+          <strong>${escapeHtml(job.source_url ? new URL(job.source_url).hostname : (state.file?.name || "Uploaded video"))}</strong>
+          <span>${escapeHtml(job.stage || "Waiting")} · ${escapeHtml(statusText)} · ${escapeHtml(job.template_label || templateNames[job.template] || "")}</span>
+        </div>
         <span class="processing-percent">${percent}%</span>
       </div>
-      <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+      <div class="progress-track"><div class="progress-fill ${job.status === 'cancelled' ? 'cancelled' : ''}" style="width:${percent}%"></div></div>
+      ${canCancel ? `
+        <div class="processing-actions">
+          <button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}">✕ Cancel processing</button>
+        </div>` : ""}
       ${job.style_match ? `
         <div class="style-match-badge ${job.style_match.matched ? "matched" : "mismatch"}">
           <span class="match-icon">${job.style_match.matched ? "✓" : "⚡"}</span>
           <div class="match-details">
-            <strong>${job.style_match.is_auto ? `Auto-matched: ${escapeHtml(job.style_match.detected_label || "")}` : (job.style_match.matched ? `Style match verified: ${escapeHtml(job.style_match.detected_label || "")}` : `Detected style: ${escapeHtml(job.style_match.detected_label || "")}`)}</strong>
+            <strong>${job.style_match.auto_detected ? `Auto-detected: ${escapeHtml(job.style_match.detected_label || "")}` : (job.style_match.matched ? `Style verified: ${escapeHtml(job.style_match.detected_label || "")}` : `Detected style: ${escapeHtml(job.style_match.detected_label || "")}`)}</strong>
             <span>${escapeHtml(job.style_match.message || (job.style_match.reasons && job.style_match.reasons.length ? job.style_match.reasons.join(" · ") : `Confidence: ${Math.round((job.style_match.confidence || 0) * 100)}%`))}</span>
           </div>
           <span class="match-confidence">${Math.round((job.style_match.confidence || 0) * 100)}% match</span>
@@ -247,12 +260,14 @@ function renderProjects() {
   list.innerHTML = filtered.map((job) => {
     let source = "Video project";
     try { if (job.source_url) source = new URL(job.source_url).hostname; } catch {}
-    const status = job.status === "completed" ? "Completed" : job.status === "failed" ? "Needs attention" : job.status === "queued" ? "In queue" : "Processing";
+    const status = job.status === "completed" ? "Completed" : job.status === "failed" ? "Needs attention" : job.status === "cancelled" ? "Cancelled" : job.status === "queued" ? "In queue" : "Processing";
     const date = new Date((job.created_at || Date.now() / 1000) * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const canCancel = job.status === "queued" || job.status === "processing";
     return `<article class="project-row">
       <div class="project-icon">▧</div>
       <div class="project-main"><strong>${escapeHtml(source)} · ${escapeHtml(job.template_label || templateNames[job.template] || "Video")}</strong><span>${escapeHtml(date)} · ${job.clips?.length || 0} clips · ${escapeHtml(job.aspect_ratio || "9:16")}</span></div>
       <span class="status-pill ${escapeHtml(job.status)}">${escapeHtml(status)}</span>
+      ${canCancel ? `<button class="project-action cancel-action" data-cancel-job="${escapeHtml(job.id)}">Cancel</button>` : ""}
       <button class="project-action" data-open-job="${escapeHtml(job.id)}">Open</button>
       <button class="project-action" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete project">×</button>
     </article>`;
@@ -266,6 +281,26 @@ async function refreshProjects() {
     jobs.forEach(upsertJob);
     renderProjects();
   } catch {}
+}
+async function cancelProject(id) {
+  if (!id) return;
+  try {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not cancel project.");
+    upsertJob(data);
+    renderProcessing(data);
+    renderProjects();
+    clearTimeout(state.pollTimer);
+    showToast("Project processing was cancelled.");
+    const button = $("#create-button");
+    if (button) {
+      button.disabled = false;
+      $("#create-button-label").textContent = "Find my best clips";
+    }
+  } catch (error) {
+    showToast(error.message || "Failed to cancel project.");
+  }
 }
 async function deleteProject(id) {
   if (!confirm("Delete this project and its generated clips? This cannot be undone.")) return;
@@ -331,11 +366,17 @@ function init() {
   $("#new-project-button").addEventListener("click", () => switchView("create"));
   $("#project-search").addEventListener("input", renderProjects);
   $("#project-filter").addEventListener("change", renderProjects);
+  $("#processing-list").addEventListener("click", (event) => {
+    const cancel = event.target.closest("[data-cancel-job]");
+    if (cancel) cancelProject(cancel.dataset.cancelJob);
+  });
   $("#projects-list").addEventListener("click", (event) => {
     const open = event.target.closest("[data-open-job]");
     const remove = event.target.closest("[data-delete-job]");
-    if (open) openProject(open.dataset.openJob);
-    if (remove) deleteProject(remove.dataset.deleteJob);
+    const cancel = event.target.closest("[data-cancel-job]");
+    if (cancel) cancelProject(cancel.dataset.cancelJob);
+    else if (open) openProject(open.dataset.openJob);
+    else if (remove) deleteProject(remove.dataset.deleteJob);
   });
   $("#min-duration").addEventListener("change", () => {
     if (Number($("#min-duration").value) >= Number($("#max-duration").value)) {

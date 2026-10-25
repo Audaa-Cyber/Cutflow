@@ -29,6 +29,12 @@
 .clip-finishing-pill strong{color:var(--text);font-weight:600}
 .clip-finishing-pill span{color:#88917e;font-size:9px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
 
-@media(min-width:1251px){
-  .template-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
-}
+/* Cancellation styling */
+.processing-actions{margin-top:14px;display:flex;justify-content:flex-end}
+.cancel-processing-btn{background:#231717;border:1px solid #5a2e2e;color:#ff9e97;font-size:11px;font-weight:600;padding:8px 14px;border-radius:6px;transition:background .15s,border-color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px}
+.cancel-processing-btn:hover{background:#351f1f;border-color:#7f3939;color:#ffb8b2;transform:translateY(-1px)}
+.processing-icon.cancelled{background:#361f1f;color:#ff827a}
+.progress-fill.cancelled{background:#8a403b}
+.status-pill.cancelled{background:#2b1d1d;color:#ff9e97;border:1px solid #4a2828}
+.project-action.cancel-action{color:#ff9e97;border-color:#532929}
+.project-action.cancel-action:hover{border-color:#7a3a3a;background:#2a1919}

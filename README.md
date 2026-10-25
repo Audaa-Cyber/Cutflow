@@ -7,8 +7,9 @@ Cutflow accepts an uploaded video or a supported public video URL, analyzes spee
 ## MVP scope
 
 - Upload local video files or submit supported public video URLs.
-- Choose an editing template: Podcast, Educational, Storytelling, Funny Moments, Gaming Highlights, Music & Performance, or Smart Auto-Detect.
-- Automatically identify the style of uploaded/linked videos from speech signals, lyrical repetition, pacing, and visual cut rate to match the optimal clip style and flag mismatches.
+- Choose an editing template: Podcast, Educational, Storytelling, Funny Moments, Gaming Highlights, or Music & Performance.
+- Automatically identify the style of uploaded/linked videos from speech signals, lyrical repetition, pacing, and visual cut rate to match the optimal clip style seamlessly without manual selection.
+- Cancel ongoing video processing anytime to immediately abort queued jobs or active FFmpeg rendering.
 - Transcribe speech with faster-whisper.
 - Rank candidate moments using transcript signals, template-specific heuristics, and FFmpeg scene-change cues.
 - Add an optional natural-language editing brief; when an OpenAI-compatible chat-completions provider is configured, use it to rerank candidates and explain clip selections.
