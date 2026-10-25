@@ -238,7 +238,8 @@ class CutflowTests(unittest.TestCase):
         self.assertEqual(job["template"], "auto")
         self.assertEqual(job["template_label"], "Smart Auto-Detect")
 
-    def test_cancel_job_cancels_queued_or_processing_job(self):
+    @patch("backend.app.POOL.submit")
+    def test_cancel_job_cancels_queued_or_processing_job(self, mock_submit):
         job = create_job("podcast", "9:16", 2, 20, 45, source_path="dummy.mp4")
         cancelled = cancel_job(job["id"])
         self.assertEqual(cancelled["status"], "cancelled")
