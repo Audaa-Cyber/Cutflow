@@ -9,3 +9,26 @@
 /* Per-clip export quality controls */
 .quality-download-row{display:flex;align-items:stretch;gap:8px;margin-top:10px}.quality-select-label{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:77px;border:1px solid #383d30;background:#1b1e17;border-radius:6px;padding:5px 8px;color:#858c7b;font:8px var(--mono);letter-spacing:.7px}.quality-select{width:100%;border:0;outline:0;background:transparent;color:#dce3d0;font:11px var(--font);cursor:pointer}.quality-select option{background:#1b1e17;color:#e0e5d7}.quality-download-row .download-button{flex:1;min-width:0;margin:0;height:auto;min-height:39px;padding:7px;text-align:center}.quality-download-note{font-size:8px;line-height:1.5;color:#747b6c;margin:7px 0 0}.quality-download-row .download-button:hover{border-color:#788b4c}
 @media(max-width:390px){.quality-download-row{gap:6px}.quality-select-label{min-width:69px;padding:5px 6px}.quality-download-row .download-button{font-size:9px}}
+
+/* Style identification & content matching */
+.glyph-auto{color:#ffe853;background:#353218}
+.style-match-badge{margin-top:14px;padding:11px 14px;border-radius:9px;display:flex;align-items:center;gap:12px;font-size:11px}
+.style-match-badge.matched{background:#1a2517;border:1px solid #3c5e2d;color:#d5ff5f}
+.style-match-badge.mismatch{background:#2a2315;border:1px solid #634e23;color:#f5d070}
+.match-icon{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0}
+.style-match-badge.matched .match-icon{background:#2b4221;color:var(--lime)}
+.style-match-badge.mismatch .match-icon{background:#4b3a1a;color:#f5d070}
+.match-details{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.match-details strong{font-size:11px;font-weight:600;color:var(--text)}
+.match-details span{font-size:10px;line-height:1.4;opacity:.85}
+.match-confidence{font:10px var(--mono);padding:4px 7px;border-radius:4px;border:1px solid currentColor;white-space:nowrap}
+
+/* Per-style tailored clip finishing */
+.clip-finishing-pill{display:flex;align-items:center;gap:6px;background:#191d15;border:1px solid #344026;border-radius:6px;padding:6px 9px;margin:9px 0 6px;font-size:10px;color:#cbd3bf}
+.finishing-spark{color:var(--lime);font-size:11px}
+.clip-finishing-pill strong{color:var(--text);font-weight:600}
+.clip-finishing-pill span{color:#88917e;font-size:9px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+
+@media(min-width:1251px){
+  .template-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+}

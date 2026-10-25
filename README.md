@@ -7,12 +7,16 @@ Cutflow accepts an uploaded video or a supported public video URL, analyzes spee
 ## MVP scope
 
 - Upload local video files or submit supported public video URLs.
-- Choose an editing template: Podcast, Educational, Storytelling, Funny Moments, Gaming Highlights, or Music & Performance.
+- Choose an editing template: Podcast, Educational, Storytelling, Funny Moments, Gaming Highlights, Music & Performance, or Smart Auto-Detect.
+- Automatically identify the style of uploaded/linked videos from speech signals, lyrical repetition, pacing, and visual cut rate to match the optimal clip style and flag mismatches.
 - Transcribe speech with faster-whisper.
-- Rank candidate moments using transcript signals, template-specific heuristics, and FFmpeg scene-change cues.\n- Add an optional natural-language editing brief; when an OpenAI-compatible chat-completions provider is configured, use it to rerank candidates and explain clip selections.\n- Persist job metadata in SQLite and recover the project library across restarts.\n- Limit the number of queued/processing projects to protect CPU and memory; tune with `MAX_ACTIVE_JOBS`.
+- Rank candidate moments using transcript signals, template-specific heuristics, and FFmpeg scene-change cues.
+- Add an optional natural-language editing brief; when an OpenAI-compatible chat-completions provider is configured, use it to rerank candidates and explain clip selections.
+- Persist job metadata in SQLite and recover the project library across restarts.
+- Limit the number of queued/processing projects to protect CPU and memory; tune with `MAX_ACTIVE_JOBS`.
 - Render vertical, square, or landscape MP4 clips with burned-in subtitles using FFmpeg.
 - Render safer phrase-grouped captions with responsive sizing and three built-in looks: Clean, Pulse, and Glow.
-- Apply restrained contrast, saturation, and sharpening to give exported footage a more finished look without changing the original editing workflow.
+- High-level tailored finishing per clip style: Studio Natural (podcasts), Crisp Clarity (tutorials), Cinematic Tone (stories), Punchy Pop (comedy), Vivid Dynamic (gaming), and Concert Vibrance (music).
 - Preview and download rendered clips.
 - No social publishing, live-stream processing, or free-form prompt-driven editing in this version.
 

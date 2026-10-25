@@ -97,6 +97,51 @@ TEMPLATES = {
     },
 }
 
+STYLE_PROFILES = {
+    "podcast": {
+        "eq": "contrast=1.04:saturation=1.06:brightness=0.005",
+        "unsharp": "5:5:0.25:3:3:0.0",
+        "default_caption": "clean",
+        "label": "Studio Natural",
+        "description": "Studio warmth with natural skin tones and clean speech focus",
+    },
+    "educational": {
+        "eq": "contrast=1.05:saturation=1.03:brightness=0.012",
+        "unsharp": "5:5:0.35:3:3:0.0",
+        "default_caption": "clean",
+        "label": "Crisp Clarity",
+        "description": "Enhanced brightness and edge sharpness for diagrams, slides, and tutorials",
+    },
+    "story": {
+        "eq": "contrast=1.08:saturation=1.06:brightness=-0.004",
+        "unsharp": "5:5:0.25:3:3:0.0",
+        "default_caption": "clean",
+        "label": "Cinematic Tone",
+        "description": "Cinematic contrast curve and rich warm undertones for dramatic narrative",
+    },
+    "funny": {
+        "eq": "contrast=1.06:saturation=1.12:brightness=0.008",
+        "unsharp": "5:5:0.30:3:3:0.0",
+        "default_caption": "pulse",
+        "label": "Punchy Pop",
+        "description": "Vibrant color saturation and punchy caption accents for comedic timing",
+    },
+    "gaming": {
+        "eq": "contrast=1.08:saturation=1.16:brightness=0.010",
+        "unsharp": "5:5:0.45:3:3:0.0",
+        "default_caption": "pulse",
+        "label": "Vivid Dynamic",
+        "description": "Ultra-sharp detail filter and high-saturation pop for gameplay HUD and action",
+    },
+    "music": {
+        "eq": "contrast=1.09:saturation=1.14:brightness=0.004",
+        "unsharp": "5:5:0.30:3:3:0.0",
+        "default_caption": "glow",
+        "label": "Concert Vibrance",
+        "description": "Concert stage vibrancy, deep contrast blacks, and soft glowing captions",
+    },
+}
+
 JOBS: dict[str, dict] = {}
 LOCK = threading.RLock()
 
@@ -396,6 +441,150 @@ def detect_scene_changes(path: Path) -> list[float]:
     return sorted({round(float(match), 2) for match in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr)})
 
 
+def identify_video_style(
+    words: list[dict],
+    transcript: str,
+    scene_changes: list[float],
+    video_duration: float,
+    title: str = "",
+) -> dict:
+    """Analyze speech vocabulary, pacing, repetition, and scene velocity to identify the best clip style."""
+    text_lower = transcript.lower()
+    title_lower = title.lower()
+    duration_min = max(0.1, video_duration / 60.0)
+    cuts_per_min = len(scene_changes) / duration_min
+
+    scores = {name: 10.0 for name in TEMPLATES}
+    reasons_map: dict[str, list[str]] = {name: [] for name in TEMPLATES}
+
+    # 1. Template keywords & hooks density
+    for name, data in TEMPLATES.items():
+        kw_matches = sum(1 for kw in data.get("keywords", set()) if kw in text_lower)
+        hook_matches = sum(2 for hook in data.get("hooks", ()) if hook in text_lower)
+        points = (kw_matches * 1.8) + (hook_matches * 3.5)
+        scores[name] += points
+        if kw_matches + hook_matches >= 3:
+            reasons_map[name].append(f"Contains key {name} phrases and terminology")
+
+    # 2. Domain-specific vocabulary signals
+    # Music signals
+    music_terms = {
+        "verse", "chorus", "melody", "rhythm", "lyrics", "beat", "instrumental",
+        "guitar", "piano", "vocals", "sing", "singing", "song", "track", "concert",
+        "drop", "dj", "rap", "band", "acoustic", "live performance", "feat", "remix"
+    }
+    music_hits = sum(1 for term in music_terms if term in text_lower)
+    if music_hits >= 2:
+        scores["music"] += music_hits * 4.0
+        reasons_map["music"].append("Musical terminology and performance cues detected")
+
+    # Gaming signals
+    gaming_terms = {
+        "gameplay", "boss", "respawn", "fps", "loot", "match", "clutch", "gg",
+        "controller", "mod", "quest", "speedrun", "minecraft", "fortnite",
+        "valorant", "roblox", "apex", "pvp", "rpg", "npc", "damage", "health",
+        "kill", "headshot", "level up", "spawn", "inventory", "glitch", "steam"
+    }
+    gaming_hits = sum(1 for term in gaming_terms if term in text_lower)
+    if gaming_hits >= 2:
+        scores["gaming"] += gaming_hits * 4.0
+        reasons_map["gaming"].append("Gaming vocabulary and gameplay action detected")
+
+    # Educational signals
+    edu_terms = {
+        "tutorial", "how to", "step 1", "step 2", "for example", "concept",
+        "technique", "method", "lesson", "guide", "definition", "science",
+        "formula", "analysis", "principles", "understand", "explanation", "in summary"
+    }
+    edu_hits = sum(1 for term in edu_terms if term in text_lower)
+    if edu_hits >= 2:
+        scores["educational"] += edu_hits * 4.0
+        reasons_map["educational"].append("Instructive phrasing and step-by-step structure")
+
+    # Story signals
+    story_terms = {
+        "one day", "suddenly", "what happened was", "remember when", "years ago",
+        "journey", "turned out", "at the time", "after that", "in the end",
+        "my life", "true story", "experience", "we decided to", "the moment i"
+    }
+    story_hits = sum(1 for term in story_terms if term in text_lower)
+    if story_hits >= 2:
+        scores["story"] += story_hits * 4.0
+        reasons_map["story"].append("Narrative storytelling cues and chronological pacing")
+
+    # Funny signals
+    funny_terms = {
+        "lol", "lmao", "haha", "hahaha", "hilarious", "joke", "prank",
+        "awkward", "fail", "omg", "ridiculous", "crazy", "bloopers", "meme"
+    }
+    funny_hits = sum(1 for term in funny_terms if term in text_lower)
+    exclamation_count = transcript.count("!")
+    if funny_hits >= 2 or exclamation_count >= 5:
+        scores["funny"] += (funny_hits * 3.5) + min(12.0, exclamation_count * 0.8)
+        reasons_map["funny"].append("High comedic reaction markers and expressive dialogue")
+
+    # Podcast signals
+    podcast_terms = {
+        "welcome back", "our guest", "guest today", "podcast", "episode",
+        "interview", "let me ask", "what do you think", "perspective",
+        "honestly", "in my opinion", "agree with that", "fascinating", "thanks for coming"
+    }
+    podcast_hits = sum(1 for term in podcast_terms if term in text_lower)
+    if podcast_hits >= 2:
+        scores["podcast"] += podcast_hits * 4.0
+        reasons_map["podcast"].append("Conversational interview dialogue and host cues")
+
+    # 3. Lyrical chorus / refrain repetition (strongest unique musical signal)
+    phrases = [w.get("word", "").lower().strip(".,!?;:\"'") for w in words if w.get("word", "").strip()]
+    if len(phrases) >= 12:
+        ngrams: dict[tuple[str, ...], int] = {}
+        for i in range(len(phrases) - 3):
+            gram = tuple(phrases[i:i+4])
+            if all(len(p) > 2 for p in gram):
+                ngrams[gram] = ngrams.get(gram, 0) + 1
+        repeated_phrases = sum(1 for count in ngrams.values() if count >= 2)
+        if repeated_phrases >= 2:
+            scores["music"] += repeated_phrases * 6.0
+            reasons_map["music"].append(f"Identified {repeated_phrases} repeated lyrical choruses or refrains")
+
+    # 4. Visual cut pacing
+    if cuts_per_min >= 16.0:
+        scores["gaming"] += 8.0
+        scores["music"] += 6.0
+        scores["funny"] += 4.0
+        reasons_map["gaming"].append("High-velocity scene changes characteristic of gaming")
+    elif cuts_per_min <= 6.0:
+        scores["podcast"] += 7.0
+        scores["educational"] += 5.0
+        reasons_map["podcast"].append("Steady visual pacing characteristic of interview discussions")
+
+    # 5. Title hints
+    if title_lower:
+        for name, data in TEMPLATES.items():
+            if name in title_lower or any(kw in title_lower for kw in data.get("keywords", ())):
+                scores[name] += 15.0
+                reasons_map[name].append(f"Video title mentions '{name}' keywords")
+
+    ranked_styles = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_style, top_score = ranked_styles[0]
+    runner_up_style, second_score = ranked_styles[1]
+
+    margin = (top_score - second_score) / max(1.0, top_score)
+    confidence = round(min(0.98, max(0.55, 0.55 + margin * 0.45)), 2)
+
+    best_reasons = reasons_map[best_style]
+    if not best_reasons:
+        best_reasons = ["Best overall fit based on speech patterns and structure"]
+
+    return {
+        "best_style": best_style,
+        "best_label": TEMPLATES[best_style]["label"],
+        "confidence": confidence,
+        "scores": {k: round(v, 1) for k, v in scores.items()},
+        "reasons": best_reasons[:3],
+    }
+
+
 def apply_prompt_edit_plan(candidates: list[dict], transcript: str, prompt: str, template: str) -> tuple[list[dict], str | None]:
     """Optionally rerank candidate moments using an OpenAI-compatible chat completion API."""
     if not prompt.strip():
@@ -534,12 +723,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
+def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast") -> None:
     dimensions = {"9:16": "1080:1920", "1:1": "1080:1080", "16:9": "1920:1080"}
     width, height = dimensions[aspect].split(":")
     ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
-    # Subtle finishing only: gentle contrast/saturation and a light detail lift, never a heavy LUT.
-    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq=contrast=1.04:saturation=1.06:brightness=0.005,unsharp=5:5:0.25:3:3:0.0,ass='{ass_path}'"
+    # High-level tailored finishing per style: custom contrast, saturation, brightness, and sharpness
+    profile = STYLE_PROFILES.get(template, STYLE_PROFILES["podcast"])
+    eq_filter = profile.get("eq", "contrast=1.04:saturation=1.06:brightness=0.005")
+    unsharp_filter = profile.get("unsharp", "5:5:0.25:3:3:0.0")
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},ass='{ass_path}'"
     duration = max(1, end - start)
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -598,6 +790,57 @@ def process_job(job_id: str) -> None:
         update_job(job_id, progress=28, stage="Analyzing visuals", message="Detecting scene changes to help find stronger moments.", transcript_preview=transcript[:1200], language=language)
         scene_changes = detect_scene_changes(source)
         update_job(job_id, progress=34, stage="Finding highlights", message=f"Ranking moments with speech and {len(scene_changes)} detected scene changes.", transcript_preview=transcript[:1200], language=language, scene_change_count=len(scene_changes))
+
+        # Content Style Identification & Matching
+        style_info = identify_video_style(words, transcript, scene_changes, metadata["duration"], title=source.stem)
+        detected_style = style_info["best_style"]
+        detected_label = TEMPLATES[detected_style]["label"]
+
+        if job["template"] == "auto":
+            # Smart Auto-Detect: automatically adopt the identified best style
+            job["template"] = detected_style
+            job["template_label"] = detected_label
+            style_match = {
+                "matched": True,
+                "is_auto": True,
+                "detected_style": detected_style,
+                "detected_label": detected_label,
+                "confidence": style_info["confidence"],
+                "reasons": style_info["reasons"],
+                "scores": style_info["scores"],
+                "message": f"Auto-detected {detected_label} ({int(style_info['confidence'] * 100)}% match).",
+            }
+        else:
+            is_match = (job["template"] == detected_style)
+            mismatch_warning = None
+            if not is_match and style_info["confidence"] >= 0.55:
+                mismatch_warning = (
+                    f"This video appears to be {detected_label} content, but you selected {job['template_label']}. "
+                    f"We applied tailored {job['template_label']} finishing as requested."
+                )
+            style_match = {
+                "matched": is_match,
+                "is_auto": False,
+                "detected_style": detected_style,
+                "detected_label": detected_label,
+                "confidence": style_info["confidence"],
+                "reasons": style_info["reasons"],
+                "scores": style_info["scores"],
+                "warning": mismatch_warning,
+                "message": f"Perfect match! Content identified as {detected_label}." if is_match else None,
+            }
+
+        update_job(
+            job_id,
+            style_match=style_match,
+            template=job["template"],
+            template_label=job["template_label"],
+            detected_style=detected_style,
+            detected_label=detected_label,
+        )
+        if style_match.get("warning") and not job.get("warning"):
+            update_job(job_id, warning=style_match["warning"])
+
         candidate_limit = max(job["clip_count"] * 5, job["clip_count"]) if job.get("edit_prompt", "").strip() else job["clip_count"]
         candidates = rank_candidates(words, job["template"], job["min_duration"], job["max_duration"], metadata["duration"], candidate_limit, scene_changes)
         candidates, ai_warning = apply_prompt_edit_plan(candidates, transcript, job.get("edit_prompt", ""), job["template"])
@@ -608,7 +851,7 @@ def process_job(job_id: str) -> None:
                 c.get("score", 0) >= 50 or any(kw in c.get("text", "").lower() for kw in ("chorus", "verse", "drop", "beat", "melody", "song", "sing", "music", "dance", "rhythm", "vibe", "track", "yeah", "baby", "love", "night"))
                 for c in candidates
             )
-            if not has_musical_signals:
+            if not has_musical_signals and not style_match.get("warning"):
                 update_job(job_id, warning="This video appears to contain spoken dialogue rather than musical performance. For best results with speech, try the 'Podcast' or 'Educational' style.")
         candidates = candidates[:job["clip_count"]]
         if not candidates:
@@ -616,13 +859,17 @@ def process_job(job_id: str) -> None:
         output_dir = OUTPUTS / job_id
         output_dir.mkdir(parents=True, exist_ok=True)
         completed = []
+        profile = STYLE_PROFILES.get(job["template"], STYLE_PROFILES["podcast"])
         for index, candidate in enumerate(candidates, start=1):
-            update_job(job_id, progress=35 + int((index - 1) / len(candidates) * 60), stage=f"Rendering clip {index} of {len(candidates)}", message=f"Creating {job['aspect_ratio']} video with captions.")
+            update_job(job_id, progress=35 + int((index - 1) / len(candidates) * 60), stage=f"Rendering clip {index} of {len(candidates)}", message=f"Creating {job['aspect_ratio']} video with {profile['label']} finishing.")
             clip_name = f"cutflow-{index:02d}.mp4"
             output = output_dir / clip_name
             ass_path = output_dir / f"cutflow-{index:02d}.ass"
-            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], job.get("caption_style", "clean"))
-            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], job.get("caption_style", "clean"))
+            caption_style_to_use = job.get("caption_style", "clean")
+            if caption_style_to_use == "clean" and profile.get("default_caption"):
+                caption_style_to_use = profile["default_caption"]
+            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use)
+            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"])
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
@@ -630,6 +877,9 @@ def process_job(job_id: str) -> None:
                 "download_url": f"/api/jobs/{job_id}/clips/{clip_name}",
                 "size": output.stat().st_size,
                 "aspect_ratio": job["aspect_ratio"],
+                "finishing_label": profile["label"],
+                "finishing_desc": profile["description"],
+                "clip_style": job["template"],
             })
             update_job(job_id, clips=completed, progress=35 + int(index / len(candidates) * 60))
         update_job(job_id, status="completed", progress=100, stage="Ready to download", message=f"Created {len(completed)} clips.", clips=completed, transcript_preview=transcript[:1200], language=language)
@@ -641,7 +891,7 @@ def process_job(job_id: str) -> None:
 
 
 def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "", caption_style: str = "clean") -> dict:
-    if template not in TEMPLATES:
+    if template not in TEMPLATES and template != "auto":
         raise HTTPException(400, "Choose a valid template.")
     if aspect_ratio not in {"9:16", "1:1", "16:9"}:
         raise HTTPException(400, "Choose a valid aspect ratio.")
@@ -652,10 +902,11 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
     if not (10 <= min_duration < max_duration <= 90):
         raise HTTPException(400, "Clip duration must be between 10 and 90 seconds, with minimum below maximum.")
     job_id = uuid.uuid4().hex
+    template_label = "Smart Auto-Detect" if template == "auto" else TEMPLATES[template]["label"]
     job = {
         "id": job_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
         "message": "Your video is queued for analysis.", "template": template,
-        "template_label": TEMPLATES[template]["label"], "aspect_ratio": aspect_ratio,
+        "template_label": template_label, "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
         "caption_style": caption_style, "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
         "created_at": time.time(), "updated_at": time.time(),

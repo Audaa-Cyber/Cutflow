@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
-from backend.app import CAPTION_STYLES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
+from backend.app import CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, create_job, db_connection, download_clip, identify_video_style, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
 
 
 def sample_words():
@@ -170,6 +170,40 @@ class CutflowTests(unittest.TestCase):
         selected, warning = apply_prompt_edit_plan(candidates, "sample", "", "podcast")
         self.assertEqual(selected, candidates)
         self.assertIsNone(warning)
+
+    def test_identify_video_style_identifies_music_content(self):
+        lyrics = "sing the chorus again drop the beat rhythm melody listen to this song yeah baby sing along"
+        words = [{"word": w, "start": i * 0.5, "end": (i + 1) * 0.5} for i, w in enumerate(lyrics.split())]
+        # Repeat the chorus phrase to trigger repetition detection
+        chorus = [{"word": w, "start": 20 + i * 0.5, "end": 20 + (i + 1) * 0.5} for i, w in enumerate("sing the chorus again drop the beat rhythm melody".split())]
+        all_words = words + chorus
+        full_transcript = lyrics + " sing the chorus again drop the beat rhythm melody"
+        result = identify_video_style(all_words, full_transcript, [1.0, 3.5, 7.0, 10.0, 15.0], 30.0, title="official_music_track.mp4")
+        self.assertEqual(result["best_style"], "music")
+        self.assertGreaterEqual(result["confidence"], 0.6)
+        self.assertIn("music", result["scores"])
+
+    def test_identify_video_style_identifies_gaming_content(self):
+        game_dialogue = "gg clutch boss respawn match gameplay headshot level up kill weapon mod quest speedrun"
+        words = [{"word": w, "start": i * 0.4, "end": (i + 1) * 0.4} for i, w in enumerate(game_dialogue.split())]
+        cuts = [float(x) for x in range(1, 20)]  # fast cuts
+        result = identify_video_style(words, game_dialogue, cuts, 45.0, title="fortnite_highlights.mp4")
+        self.assertEqual(result["best_style"], "gaming")
+        self.assertGreaterEqual(result["confidence"], 0.6)
+
+    def test_render_clip_applies_tailored_style_filters(self):
+        for style_name, profile in STYLE_PROFILES.items():
+            with patch("backend.app.run_command") as run:
+                render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 2, 12, "9:16", template=style_name)
+            command = run.call_args.args[0]
+            filter_arg = command[command.index("-vf") + 1]
+            self.assertIn(profile["eq"], filter_arg)
+            self.assertIn(profile["unsharp"], filter_arg)
+
+    def test_create_job_supports_auto_template(self):
+        job = create_job("auto", "9:16", 3, 20, 45, source_path="dummy.mp4")
+        self.assertEqual(job["template"], "auto")
+        self.assertEqual(job["template_label"], "Smart Auto-Detect")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const templateNames = {
+  auto: "Smart Auto-Detect",
   podcast: "Podcast & conversation",
   educational: "Educational & how-to",
   story: "Storytelling",
@@ -176,6 +177,15 @@ function renderProcessing(job) {
         <span class="processing-percent">${percent}%</span>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+      ${job.style_match ? `
+        <div class="style-match-badge ${job.style_match.matched ? "matched" : "mismatch"}">
+          <span class="match-icon">${job.style_match.matched ? "✓" : "⚡"}</span>
+          <div class="match-details">
+            <strong>${job.style_match.is_auto ? `Auto-matched: ${escapeHtml(job.style_match.detected_label || "")}` : (job.style_match.matched ? `Style match verified: ${escapeHtml(job.style_match.detected_label || "")}` : `Detected style: ${escapeHtml(job.style_match.detected_label || "")}`)}</strong>
+            <span>${escapeHtml(job.style_match.message || (job.style_match.reasons && job.style_match.reasons.length ? job.style_match.reasons.join(" · ") : `Confidence: ${Math.round((job.style_match.confidence || 0) * 100)}%`))}</span>
+          </div>
+          <span class="match-confidence">${Math.round((job.style_match.confidence || 0) * 100)}% match</span>
+        </div>` : ""}
       ${job.error ? `<p class="error-message">${escapeHtml(job.error)}</p>` : ""}
       ${job.warning ? `<p class="warning-message">${escapeHtml(job.warning)}</p>` : ""}
     </article>`;
@@ -197,7 +207,13 @@ function renderClips(job) {
       </div>
       <div class="clip-body">
         <div class="clip-topline"><strong>${escapeHtml(clip.title || `Clip ${index + 1}`)}</strong><span class="score-pill">${Number(clip.score)} / 100</span></div>
-        <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[job.template])}</span></div>
+        <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[clip.clip_style || job.template] || job.template_label)}</span></div>
+        ${clip.finishing_label ? `
+        <div class="clip-finishing-pill" title="${escapeHtml(clip.finishing_desc || "")}">
+          <span class="finishing-spark">✦</span>
+          <strong>${escapeHtml(clip.finishing_label)}</strong>
+          <span>${escapeHtml(clip.finishing_desc || "")}</span>
+        </div>` : ""}
         <p class="clip-excerpt">${escapeHtml(clip.text || "")}</p>
         ${clip.reason ? `<p class="clip-reason">${escapeHtml(clip.reason)}</p>` : ""}
         <div class="quality-download-row">
