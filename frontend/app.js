@@ -18,6 +18,7 @@ const templateNames = {
   story: "Storytelling",
   funny: "Funny moments",
   gaming: "Gaming highlights",
+  music: "Music & performance",
 };
 
 function escapeHtml(value = "") {

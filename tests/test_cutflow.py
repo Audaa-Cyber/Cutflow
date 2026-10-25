@@ -63,6 +63,12 @@ class CutflowTests(unittest.TestCase):
         for previous, current in zip(clips, clips[1:]):
             self.assertGreaterEqual(current["start"], previous["start"])
 
+    def test_music_template_ranking(self):
+        words, duration = sample_words()
+        clips = rank_candidates(words, "music", 10, 20, duration, 3, [7.5, 18.0, 29.0])
+        self.assertTrue(clips)
+        self.assertEqual(clips[0]["category"], "Music & performance")
+
 
     def test_caption_presets_and_phrase_captions_stay_readable(self):
         self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow"})

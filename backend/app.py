@@ -79,6 +79,12 @@ TEMPLATES = {
         "keywords": {"win", "won", "clutch", "kill", "enemy", "team", "let's go", "nice", "no", "watch", "crazy", "one shot", "game"},
         "hooks": ("let's go", "one shot", "watch this", "no way", "last second", "we won", "that was close"),
     },
+    "music": {
+        "label": "Music & performance",
+        "description": "Catchy choruses, beat drops, vocal climaxes, and rhythmic moments.",
+        "keywords": {"chorus", "verse", "drop", "beat", "melody", "song", "sing", "music", "dance", "rhythm", "vibe", "track", "sound", "feel", "yeah", "baby", "love"},
+        "hooks": ("sing it", "listen to this", "drop the beat", "one more time", "everybody", "here we go", "can you feel"),
+    },
 }
 
 JOBS: dict[str, dict] = {}
