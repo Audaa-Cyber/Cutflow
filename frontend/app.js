@@ -177,6 +177,7 @@ function renderProcessing(job) {
   const canCancel = job.status === "queued" || job.status === "processing";
   container.innerHTML = `
     <article class="processing-card ${job.status}">
+      <button class="close-processing-card-btn" data-dismiss-job="${escapeHtml(job.id)}" aria-label="Remove from view" title="Remove">×</button>
       <div class="processing-head">
         <div class="processing-icon ${job.status === 'cancelled' ? 'cancelled' : ''}">${icon}</div>
         <div class="processing-info">
@@ -186,10 +187,10 @@ function renderProcessing(job) {
         <span class="processing-percent">${percent}%</span>
       </div>
       <div class="progress-track"><div class="progress-fill ${job.status === 'cancelled' ? 'cancelled' : ''}" style="width:${percent}%"></div></div>
-      ${canCancel ? `
-        <div class="processing-actions">
-          <button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}">✕ Cancel processing</button>
-        </div>` : ""}
+      <div class="processing-actions">
+        ${canCancel ? `<button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}">✕ Cancel processing</button>` : ""}
+        ${job.status === "cancelled" || job.status === "failed" ? `<button class="dismiss-processing-btn" data-dismiss-job="${escapeHtml(job.id)}">✕ Remove</button>` : ""}
+      </div>
       ${job.style_match ? `
         <div class="style-match-badge ${job.style_match.matched ? "matched" : "mismatch"}">
           <span class="match-icon">${job.style_match.matched ? "✓" : "⚡"}</span>
@@ -318,6 +319,21 @@ async function deleteProject(id) {
     showToast("Project deleted.");
   } catch (error) { showToast(error.message); }
 }
+function dismissJob(id) {
+  if (state.activeJobId === id || !id) {
+    state.activeJobId = null;
+    $("#active-processing").hidden = true;
+    $("#latest-results").hidden = true;
+    clearTimeout(state.pollTimer);
+    const button = $("#create-button");
+    if (button) {
+      button.disabled = false;
+      $("#create-button-label").textContent = "Find my best clips";
+    }
+  } else {
+    $("#active-processing").hidden = true;
+  }
+}
 function openProject(id) {
   const job = state.jobs.find((item) => item.id === id);
   if (!job) return;
@@ -368,7 +384,9 @@ function init() {
   $("#project-filter").addEventListener("change", renderProjects);
   $("#processing-list").addEventListener("click", (event) => {
     const cancel = event.target.closest("[data-cancel-job]");
+    const dismiss = event.target.closest("[data-dismiss-job]");
     if (cancel) cancelProject(cancel.dataset.cancelJob);
+    else if (dismiss) dismissJob(dismiss.dataset.dismissJob);
   });
   $("#projects-list").addEventListener("click", (event) => {
     const open = event.target.closest("[data-open-job]");

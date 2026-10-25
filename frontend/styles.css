@@ -30,7 +30,7 @@
 .clip-finishing-pill span{color:#88917e;font-size:9px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
 
 /* Cancellation styling */
-.processing-actions{margin-top:14px;display:flex;justify-content:flex-end}
+.processing-actions{margin-top:14px;display:flex;justify-content:flex-end;gap:8px}
 .cancel-processing-btn{background:#231717;border:1px solid #5a2e2e;color:#ff9e97;font-size:11px;font-weight:600;padding:8px 14px;border-radius:6px;transition:background .15s,border-color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px}
 .cancel-processing-btn:hover{background:#351f1f;border-color:#7f3939;color:#ffb8b2;transform:translateY(-1px)}
 .processing-icon.cancelled{background:#361f1f;color:#ff827a}
@@ -38,3 +38,13 @@
 .status-pill.cancelled{background:#2b1d1d;color:#ff9e97;border:1px solid #4a2828}
 .project-action.cancel-action{color:#ff9e97;border-color:#532929}
 .project-action.cancel-action:hover{border-color:#7a3a3a;background:#2a1919}
+
+/* Processing card dismiss (X) button & card positioning */
+.processing-card{position:relative}
+.processing-head{padding-right:32px}
+.close-processing-card-btn{position:absolute;top:13px;right:13px;width:24px;height:24px;border-radius:6px;background:#20231c;border:1px solid #363d2e;color:#8f9588;display:grid;place-items:center;font-size:17px;line-height:1;cursor:pointer;transition:all .15s;padding:0;z-index:2}
+.close-processing-card-btn:hover{background:#351f1f;border-color:#6e3333;color:#ff9e97;transform:scale(1.05)}
+.dismiss-processing-btn{background:#20231c;border:1px solid #3c4434;color:#c7ccbd;font-size:11px;font-weight:600;padding:8px 14px;border-radius:6px;transition:background .15s,border-color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px}
+.dismiss-processing-btn:hover{background:#322020;border-color:#613333;color:#ff9e97;transform:translateY(-1px)}
+.template-glyph{font-size:16px;line-height:1}
+
