@@ -82,7 +82,7 @@ class CutflowTests(unittest.TestCase):
 
 
     def test_caption_presets_and_phrase_captions_stay_readable(self):
-        self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow", "hormozi", "karaoke"})
+        self.assertTrue({"clean", "pulse", "glow", "hormozi", "karaoke", "prime", "impact", "paper", "elevate", "pop", "y2k", "chalk"}.issubset(set(CAPTION_STYLES)))
         words = [
             {"start": i * 0.4, "end": i * 0.4 + 0.3, "word": word}
             for i, word in enumerate("This is a really useful explanation that should remain inside the frame.".split())
@@ -95,12 +95,28 @@ class CutflowTests(unittest.TestCase):
         self.assertIn("DejaVu Sans", rendered)
         self.assertIn("MarginV", rendered)
         self.assertIn(r"\c&H0066F4C6", rendered)
+        self.assertIn(r"\fscx114\fscy114", rendered)
         dialogue_lines = [line for line in rendered.splitlines() if line.startswith("Dialogue:")]
         self.assertGreater(len(dialogue_lines), 1)
         for line in dialogue_lines:
             caption = line.split(",,", 1)[-1]
             visible_caption = re.sub(r"\{[^}]*\}", "", caption)
             self.assertLessEqual(len(visible_caption), 28)
+
+    def test_captions_ai_prime_preset_and_kinetic_pop(self):
+        words = [
+            {"start": 0.0, "end": 0.4, "word": "This"},
+            {"start": 0.4, "end": 0.8, "word": "crazy"},
+            {"start": 0.8, "end": 1.2, "word": "growth"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            subtitle = Path(directory) / "prime.ass"
+            write_ass(subtitle, words, 0, 1.5, "9:16", "prime", auto_emoji=True, kinetic_pop=True)
+            content = subtitle.read_text(encoding="utf-8")
+        self.assertIn(r"\c&H00FFFA93", content)
+        self.assertIn(r"\fscx114\fscy114", content)
+        self.assertIn("⚡", content)
+        self.assertIn("🚀", content)
 
     def test_write_srt_and_auto_emoji_integration(self):
         from backend.app import write_srt

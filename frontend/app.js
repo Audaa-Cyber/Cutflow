@@ -1,8 +1,9 @@
 const state = {
   template: "podcast",
   aspectRatio: "9:16",
-  captionStyle: "pulse",
+  captionStyle: "prime",
   autoEmoji: true,
+  kineticPop: true,
   uppercase: false,
   sourceMode: "upload",
   file: null,
@@ -80,8 +81,9 @@ function readSettings() {
   return {
     template: state.template,
     aspect_ratio: state.aspectRatio,
-    caption_style: state.captionStyle,
+    caption_style: state.captionStyle || ($("#caption-style") ? $("#caption-style").value : "prime"),
     auto_emoji: $("#caption-auto-emoji") ? $("#caption-auto-emoji").checked : true,
+    kinetic_pop: $("#caption-kinetic-pop") ? $("#caption-kinetic-pop").checked : true,
     uppercase: $("#caption-uppercase") ? $("#caption-uppercase").checked : false,
     clip_count: Number($("#clip-count").value),
     min_duration: min,
@@ -386,6 +388,9 @@ function init() {
   $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
   if ($("#caption-auto-emoji")) {
     $("#caption-auto-emoji").addEventListener("change", (event) => { state.autoEmoji = event.target.checked; });
+  }
+  if ($("#caption-kinetic-pop")) {
+    $("#caption-kinetic-pop").addEventListener("change", (event) => { state.kineticPop = event.target.checked; });
   }
   if ($("#caption-uppercase")) {
     $("#caption-uppercase").addEventListener("change", (event) => { state.uppercase = event.target.checked; });
