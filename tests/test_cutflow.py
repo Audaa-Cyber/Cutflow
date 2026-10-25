@@ -17,7 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
-from backend.app import CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, cancel_job, create_job, db_connection, download_clip, identify_video_style, make_title, persist_job, rank_candidates, render_clip, render_export, export_dimensions, write_ass
+from backend.app import (
+    CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, cancel_job,
+    create_job, db_connection, download_clip, extract_headline, parse_caption_prompt,
+    identify_video_style, make_title, persist_job, rank_candidates, render_clip,
+    render_export, export_dimensions, write_ass,
+)
 
 
 def sample_words():
@@ -248,6 +253,75 @@ class CutflowTests(unittest.TestCase):
     def test_cancel_nonexistent_job_raises_404(self):
         with self.assertRaises(HTTPException):
             cancel_job("0" * 32)
+
+    def test_flagship_caption_styles_exist_and_are_emoji_free(self):
+        flagship_keys = {"focus", "linen", "evo", "lift", "stack", "align"}
+        self.assertTrue(flagship_keys.issubset(set(CAPTION_STYLES)))
+        for key in flagship_keys:
+            style = CAPTION_STYLES[key]
+            self.assertTrue(style["label"])
+            self.assertTrue(style["show_headline"])
+            # Ensure no unicode emojis in style label
+            self.assertFalse(re.search(r"[\U00010000-\U0010ffff]", style["label"]))
+
+    def test_extract_headline_extracts_punchy_hooks(self):
+        self.assertEqual(extract_headline("The biggest mistake people make in code"), "THE BIGGEST MISTAKE")
+        self.assertEqual(extract_headline("Here's why you need to start today"), "HERE'S WHY YOU NEED")
+        self.assertEqual(extract_headline("Drop the beat right now"), "DROP THE BEAT")
+        fallback = extract_headline("Simple thoughts and ideas for success")
+        self.assertTrue(fallback.isupper())
+        self.assertLessEqual(len(fallback), 24)
+
+    def test_parse_caption_prompt_parses_custom_styles(self):
+        # 1. Focus badge box prompt
+        focus_style = parse_caption_prompt("Inverted badge box with black text and neon cyan pop")
+        self.assertTrue(focus_style.get("badge_box"))
+        self.assertEqual(focus_style.get("accent_color"), "&H00FFFF00")
+
+        # 2. Linen editorial serif prompt
+        linen_style = parse_caption_prompt("Editorial serif linen layout with elegant gold pop")
+        self.assertEqual(linen_style.get("font"), "DejaVu Serif")
+        self.assertEqual(linen_style.get("accent_color"), "&H0000FFFF")
+
+        # 3. Stack brutalist technical prompt
+        stack_style = parse_caption_prompt("Brutalist monospace technical grid with yellow pop and vertical side text")
+        self.assertEqual(stack_style.get("font"), "DejaVu Sans Mono")
+        self.assertTrue(stack_style.get("vertical_side"))
+
+    def test_multi_layer_ass_renders_headline_and_badge_boxes(self):
+        words = [
+            {"start": 0.0, "end": 0.4, "word": "The"},
+            {"start": 0.4, "end": 0.8, "word": "biggest"},
+            {"start": 0.8, "end": 1.2, "word": "mistake"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            subtitle = Path(directory) / "focus.ass"
+            write_ass(subtitle, words, 0, 1.5, "9:16", "focus", auto_headline=True)
+            content = subtitle.read_text(encoding="utf-8")
+        self.assertIn("CutflowTitle", content)
+        self.assertIn("THE BIGGEST MISTAKE", content)
+        # Check inverted white badge box tag
+        self.assertIn(r"\3c&H00FFFFFF\c&H00000000", content)
+
+    @patch("backend.app.POOL.submit")
+    def test_create_job_supports_dual_caption_modes(self, mock_submit):
+        # Prompt mode
+        job_prompt = create_job(
+            "podcast", "9:16", 2, 20, 45, source_path="dummy.mp4",
+            caption_mode="prompt", caption_prompt="Linen editorial serif layout with gold pop",
+            auto_headline=True,
+        )
+        self.assertEqual(job_prompt["caption_mode"], "prompt")
+        self.assertIn("Linen editorial", job_prompt["caption_prompt"])
+        self.assertTrue(job_prompt["auto_headline"])
+
+        # Auto mode with focus preset
+        job_auto = create_job(
+            "podcast", "9:16", 2, 20, 45, source_path="dummy.mp4",
+            caption_mode="auto", caption_style="focus",
+        )
+        self.assertEqual(job_auto["caption_mode"], "auto")
+        self.assertEqual(job_auto["caption_style"], "focus")
 
 
 if __name__ == "__main__":

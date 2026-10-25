@@ -1,8 +1,11 @@
 const state = {
   template: "podcast",
   aspectRatio: "9:16",
-  captionStyle: "prime",
-  autoEmoji: true,
+  captionStyle: "focus",
+  captionMode: "auto",
+  captionPrompt: "",
+  autoHeadline: true,
+  autoEmoji: false,
   kineticPop: true,
   uppercase: false,
   sourceMode: "upload",
@@ -78,13 +81,20 @@ function readSettings() {
     showToast("Maximum duration must be greater than minimum duration.");
     return null;
   }
+  const captionMode = state.captionMode || "auto";
+  const captionPrompt = captionMode === "prompt"
+    ? ($("#caption-prompt-input") ? $("#caption-prompt-input").value.trim() : "")
+    : "";
   return {
     template: state.template,
     aspect_ratio: state.aspectRatio,
-    caption_style: state.captionStyle || ($("#caption-style") ? $("#caption-style").value : "prime"),
-    auto_emoji: $("#caption-auto-emoji") ? $("#caption-auto-emoji").checked : true,
+    caption_style: state.captionStyle || ($("#caption-style") ? $("#caption-style").value : "focus"),
+    caption_mode: captionMode,
+    caption_prompt: captionPrompt,
+    auto_headline: $("#caption-auto-headline") ? $("#caption-auto-headline").checked : true,
     kinetic_pop: $("#caption-kinetic-pop") ? $("#caption-kinetic-pop").checked : true,
     uppercase: $("#caption-uppercase") ? $("#caption-uppercase").checked : false,
+    auto_emoji: false,
     clip_count: Number($("#clip-count").value),
     min_duration: min,
     max_duration: max,
@@ -199,7 +209,7 @@ function renderProcessing(job) {
       </div>
       ${job.style_match ? `
         <div class="style-match-badge ${job.style_match.matched ? "matched" : "mismatch"}">
-          <span class="match-icon">${job.style_match.matched ? "✓" : "⚡"}</span>
+          <span class="match-icon">${job.style_match.matched ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'}</span>
           <div class="match-details">
             <strong>${job.style_match.auto_detected ? `Auto-detected: ${escapeHtml(job.style_match.detected_label || "")}` : (job.style_match.matched ? `Style verified: ${escapeHtml(job.style_match.detected_label || "")}` : `Detected style: ${escapeHtml(job.style_match.detected_label || "")}`)}</strong>
             <span>${escapeHtml(job.style_match.message || (job.style_match.reasons && job.style_match.reasons.length ? job.style_match.reasons.join(" · ") : `Confidence: ${Math.round((job.style_match.confidence || 0) * 100)}%`))}</span>
@@ -249,8 +259,14 @@ function renderClips(job) {
         </div>
         <div class="subtitles-download-row">
           <span class="subtitles-label">SUBTITLES:</span>
-          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.srt'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.srt'))}">📄 .SRT</a>
-          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.ass'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.ass'))}">✨ .ASS (Karaoke)</a>
+          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.srt'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.srt'))}">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            .SRT
+          </a>
+          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.ass'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.ass'))}">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            .ASS (Karaoke)
+          </a>
         </div>
         <p class="quality-download-note">First export at a new quality takes a moment. Later downloads are cached.</p>
       </div>
@@ -386,8 +402,39 @@ function init() {
     link.innerHTML = `<span>↓</span> Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
   $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
-  if ($("#caption-auto-emoji")) {
-    $("#caption-auto-emoji").addEventListener("change", (event) => { state.autoEmoji = event.target.checked; });
+  $$(".caption-mode-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const mode = tab.dataset.captionMode;
+      state.captionMode = mode;
+      $$(".caption-mode-tab").forEach((t) => {
+        const active = t === tab;
+        t.classList.toggle("active", active);
+        t.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      const autoPanel = $("#caption-auto-panel");
+      const promptPanel = $("#caption-prompt-panel");
+      if (autoPanel) autoPanel.style.display = mode === "auto" ? "block" : "none";
+      if (promptPanel) promptPanel.style.display = mode === "prompt" ? "block" : "none";
+    });
+  });
+  $$(".prompt-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const input = $("#caption-prompt-input");
+      if (!input) return;
+      input.value = chip.dataset.prompt;
+      state.captionPrompt = chip.dataset.prompt;
+      input.focus();
+    });
+  });
+  if ($("#caption-prompt-input")) {
+    $("#caption-prompt-input").addEventListener("input", (event) => {
+      state.captionPrompt = event.target.value;
+    });
+  }
+  if ($("#caption-auto-headline")) {
+    $("#caption-auto-headline").addEventListener("change", (event) => {
+      state.autoHeadline = event.target.checked;
+    });
   }
   if ($("#caption-kinetic-pop")) {
     $("#caption-kinetic-pop").addEventListener("change", (event) => { state.kineticPop = event.target.checked; });
