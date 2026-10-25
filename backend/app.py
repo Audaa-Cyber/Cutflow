@@ -82,8 +82,18 @@ TEMPLATES = {
     "music": {
         "label": "Music & performance",
         "description": "Catchy choruses, beat drops, vocal climaxes, and rhythmic moments.",
-        "keywords": {"chorus", "verse", "drop", "beat", "melody", "song", "sing", "music", "dance", "rhythm", "vibe", "track", "sound", "feel", "yeah", "baby", "love"},
-        "hooks": ("sing it", "listen to this", "drop the beat", "one more time", "everybody", "here we go", "can you feel"),
+        "keywords": {
+            "chorus", "verse", "drop", "beat", "melody", "song", "sing", "music", "dance",
+            "rhythm", "vibe", "track", "sound", "feel", "yeah", "baby", "love", "heart",
+            "night", "life", "time", "away", "hold", "let", "go", "wanna", "gonna", "party",
+            "bass", "rock", "flow", "fire", "eyes", "dream", "hands", "world", "oh", "whoa",
+            "hey", "alright", "groove", "tune"
+        },
+        "hooks": (
+            "drop the beat", "sing it", "listen to this", "one more time", "everybody",
+            "here we go", "can you feel", "put your hands", "turn it up", "all night",
+            "don't stop", "make some noise", "let it go", "sing along"
+        ),
     },
 }
 
@@ -260,8 +270,11 @@ def sentence_groups(words: list[dict]) -> list[list[dict]]:
     groups: list[list[dict]] = []
     current: list[dict] = []
     for word in words:
+        gap = float(word["start"]) - float(current[-1]["end"]) if current else 0.0
+        # In speech, split on terminal punctuation; in music/lyrics, also respect natural vocal pauses
+        is_break = bool(re.search(r"[.!?][\"'’)]?$", str(word.get("word", "")))) or (gap >= 0.85 and len(current) >= 3)
         current.append(word)
-        if re.search(r"[.!?][\"'’)]?$", word["word"]):
+        if is_break:
             groups.append(current)
             current = []
     if current:
@@ -306,16 +319,38 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
                 phrase_hits = sum(1 for phrase in config["hooks"] if phrase in normalized)
                 hook_bonus = 15 if phrase_hits else 0
                 keyword_score = min(24, keyword_hits * 3)
-                punctuation_score = min(8, sum(text.count(mark) for mark in "!?") * 2)
-                density = len(tokens) / max(1, duration)
-                density_score = min(12, density * 3)
                 duration_score = max(0, 15 - abs(duration - target) * 0.55)
-                context_score = 10 if text[-1:] in ".!?" else 3
                 scenes = scene_changes or []
-                visual_bonus = min(8, sum(1 for stamp in scenes if start + 1.5 < stamp < end - 1.5) * 2)
-                boundary_bonus = 4 if any(abs(stamp - start) <= 1.5 for stamp in scenes) else 0
-                filler_penalty = min(10, sum(tokens.count(filler) for filler in ("um", "uh", "erm")) * 2)
-                score = int(max(35, min(99, 40 + hook_bonus + keyword_score + punctuation_score + density_score + duration_score + context_score + visual_bonus + boundary_bonus - filler_penalty)))
+
+                if template == "music":
+                    # Music/performance: detect chorus repetitions and rhythm
+                    counts: dict[str, int] = {}
+                    for token in tokens:
+                        if len(token) > 2:
+                            counts[token] = counts.get(token, 0) + 1
+                    repeated = sum(cnt - 1 for cnt in counts.values() if cnt > 1)
+                    chorus_bonus = min(16, repeated * 3)
+                    visual_bonus = min(14, sum(1 for stamp in scenes if start + 0.6 < stamp < end - 0.6) * 2.5)
+                    boundary_bonus = 5 if any(abs(stamp - start) <= 1.2 for stamp in scenes) else 0
+                    density = len(tokens) / max(1, duration)
+                    density_score = min(10, density * 2.5)
+                    context_score = 8
+                    punctuation_score = 0
+                    # Heavy penalty for speech/interview fillers to avoid conversation mismatch
+                    filler_penalty = min(28, sum(tokens.count(filler) for filler in ("um", "uh", "erm", "basically", "actually", "literally", "honestly")) * 4)
+                    musical_signal = keyword_hits + (2 if phrase_hits else 0) + repeated
+                    mismatch_penalty = 18 if musical_signal == 0 else 0
+                    score = int(max(25, min(99, 42 + hook_bonus + keyword_score + chorus_bonus + visual_bonus + boundary_bonus + density_score + duration_score + context_score - filler_penalty - mismatch_penalty)))
+                else:
+                    punctuation_score = min(8, sum(text.count(mark) for mark in "!?") * 2)
+                    density = len(tokens) / max(1, duration)
+                    density_score = min(12, density * 3)
+                    context_score = 10 if text[-1:] in ".!?" else 3
+                    visual_bonus = min(8, sum(1 for stamp in scenes if start + 1.5 < stamp < end - 1.5) * 2)
+                    boundary_bonus = 4 if any(abs(stamp - start) <= 1.5 for stamp in scenes) else 0
+                    filler_penalty = min(10, sum(tokens.count(filler) for filler in ("um", "uh", "erm")) * 2)
+                    score = int(max(35, min(99, 40 + hook_bonus + keyword_score + punctuation_score + density_score + duration_score + context_score + visual_bonus + boundary_bonus - filler_penalty)))
+
                 candidates.append({
                     "start": round(start, 2), "end": round(end, 2), "duration": round(duration, 1),
                     "text": text, "score": score, "category": config["label"],
@@ -372,7 +407,7 @@ def apply_prompt_edit_plan(candidates: list[dict], transcript: str, prompt: str,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "You are a short-form video editor. Select only from supplied candidate clips. Return JSON with a 'ranked' array of objects containing 'index' (zero-based candidate index), 'title' (short, accurate title), 'reason' (one concise sentence), and 'score' (integer 1-100). Never invent quotes or timestamps. Respect the user's editing brief and chosen template."},
+            {"role": "system", "content": "You are a short-form video editor. Select only from supplied candidate clips. Return JSON with a 'ranked' array of objects containing 'index' (zero-based candidate index), 'title' (short, accurate title), 'reason' (one concise sentence), and 'score' (integer 1-100). Never invent quotes or timestamps. Respect the user's editing brief and chosen template. For music, prioritize catchy hooks, choruses, drops, and musical performances."},
             {"role": "user", "content": json.dumps({"template": template, "editing_brief": prompt[:1200], "transcript_context": transcript[:10000], "candidates": [{"index": i, "start": c["start"], "end": c["end"], "score": c["score"], "text": c["text"][:900]} for i, c in enumerate(candidates[:40])]}, ensure_ascii=False)},
         ],
     }
@@ -568,6 +603,13 @@ def process_job(job_id: str) -> None:
         candidates, ai_warning = apply_prompt_edit_plan(candidates, transcript, job.get("edit_prompt", ""), job["template"])
         if ai_warning:
             update_job(job_id, warning=ai_warning)
+        elif job["template"] == "music":
+            has_musical_signals = any(
+                c.get("score", 0) >= 50 or any(kw in c.get("text", "").lower() for kw in ("chorus", "verse", "drop", "beat", "melody", "song", "sing", "music", "dance", "rhythm", "vibe", "track", "yeah", "baby", "love", "night"))
+                for c in candidates
+            )
+            if not has_musical_signals:
+                update_job(job_id, warning="This video appears to contain spoken dialogue rather than musical performance. For best results with speech, try the 'Podcast' or 'Educational' style.")
         candidates = candidates[:job["clip_count"]]
         if not candidates:
             raise RuntimeError("No usable moments were found. Try a longer video with clear speech or adjust the duration range.")

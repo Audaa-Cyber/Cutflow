@@ -69,6 +69,17 @@ class CutflowTests(unittest.TestCase):
         self.assertTrue(clips)
         self.assertEqual(clips[0]["category"], "Music & performance")
 
+    def test_music_template_prefers_chorus_over_interview_fillers(self):
+        song_lyrics = "sing it out loud yeah yeah baby dance all night to the rhythm and feel the beat drop"
+        song_words = [{"start": i * 0.7, "end": i * 0.7 + 0.6, "word": w} for i, w in enumerate(song_lyrics.split())]
+        speech_text = "um honestly basically actually like you know erm I think that was literally crazy"
+        speech_words = [{"start": i * 0.7, "end": i * 0.7 + 0.6, "word": w} for i, w in enumerate(speech_text.split())]
+        song_clips = rank_candidates(song_words, "music", 8, 20, 20.0, 1, [3.0, 7.0])
+        speech_clips = rank_candidates(speech_words, "music", 8, 20, 20.0, 1)
+        self.assertTrue(song_clips)
+        self.assertTrue(speech_clips)
+        self.assertGreater(song_clips[0]["score"], speech_clips[0]["score"])
+
 
     def test_caption_presets_and_phrase_captions_stay_readable(self):
         self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow"})
