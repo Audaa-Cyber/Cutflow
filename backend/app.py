@@ -30,6 +30,19 @@ OUTPUTS = DATA / "outputs"
 for directory in (UPLOADS, OUTPUTS, FRONTEND):
     directory.mkdir(parents=True, exist_ok=True)
 
+
+def ensure_ffmpeg_path():
+    if not shutil.which("ffmpeg"):
+        local_app = Path(os.environ.get("LOCALAPPDATA", ""))
+        winget = local_app / "Microsoft" / "WinGet" / "Packages"
+        if winget.exists():
+            for p in winget.glob("**/ffmpeg.exe"):
+                os.environ["PATH"] = str(p.parent) + os.pathsep + os.environ.get("PATH", "")
+                break
+
+
+ensure_ffmpeg_path()
+
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
@@ -1034,20 +1047,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     base_color = style["base_color"]
     upcoming_color = style.get("upcoming_color", "&H00999999")
 
-    # Zone 1: Upper-third hook headline overlay (Full-canvas Captions.ai style)
+    # Zone 1: Upper-third hook headline overlay (Only during first 3.5s hook phase, not entire video!)
     if auto_headline and style.get("show_headline", False) and visible:
         headline = extract_headline(candidate_text or visible, template)
         headline_esc = _ass_escape(headline)
         clip_duration = max(0.5, end - start)
+        hook_duration = min(3.8, max(1.5, clip_duration))
         if style.get("top_banner"):
-            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(clip_duration)},CutflowBanner,,0,0,0,,{{\\an8\\pos({width // 2},{title_margin_v})\\fsp2}} {headline_esc} ")
+            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowBanner,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\fsp2}} {headline_esc} ")
+        elif style.get("badge_box"):
+            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowTitle,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\bord8\\3c&H00FFFFFF\\c&H00000000\\fsp2}} {headline_esc} ")
         else:
-            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(clip_duration)},CutflowTitle,,0,0,0,,{{\\an8\\pos({width // 2},{title_margin_v})\\fsp3\\c&H00FFFFFF}}{headline_esc}")
+            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowTitle,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\fsp3\\c&H00FFFFFF}}{headline_esc}")
 
-    # Zone 2: Framing & technical side rail (Stack style)
+    # Zone 2: Framing & technical side rail (Stack style during hook)
     if style.get("vertical_side"):
         clip_duration = max(0.5, end - start)
-        lines.append(f"Dialogue: 0,0:00:00.00,{ass_time(clip_duration)},CutflowSide,,0,0,0,,{{\\an4\\pos(65,960)\\frz90\\alpha&H40&}}CUTFLOW // MOTION GRAPHICS")
+        hook_duration = min(4.0, max(1.5, clip_duration))
+        lines.append(f"Dialogue: 0,0:00:00.00,{ass_time(hook_duration)},CutflowSide,,0,0,0,,{{\\fad(200,400)\\an4\\pos(65,960)\\frz90\\alpha&H40&}}CUTFLOW // MOTION GRAPHICS")
+
+    is_italic = style.get("italic", False) or style.get("font") == "DejaVu Serif"
+    is_bracket = style.get("bracket_pop", False) or (caption_style == "stack")
 
     # Zone 3: Kinetic Dialogue Badges
     for group in groups:
@@ -1085,20 +1105,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 formatted_words = []
                 for j, tok in enumerate(tokens):
+                    it_prefix = r"{\i1}" if is_italic else ""
+                    it_suffix = r"{\i0}" if is_italic else ""
                     if j < i:
-                        formatted_words.append(f"{{\\c{base_color}}}{tok['word']}")
+                        formatted_words.append(f"{it_prefix}{{\\c{base_color}}}{tok['word']}{it_suffix}")
                     elif j == i:
                         if is_badge_box:
-                            if use_pop:
-                                formatted_words.append(f"{{\\bord8\\3c&H00FFFFFF\\c&H00000000\\fscx112\\fscy112}}{tok['word']}{{\\rCutflow}}")
-                            else:
-                                formatted_words.append(f"{{\\bord8\\3c&H00FFFFFF\\c&H00000000}}{tok['word']}{{\\rCutflow}}")
+                            pop_tag = r"\fscx112\fscy112" if use_pop else ""
+                            formatted_words.append(f"{{\\bord10\\3c&H00FFFFFF\\c&H00000000{pop_tag}}}{tok['word']}{{\\rCutflow}}")
+                        elif is_bracket:
+                            pop_tag = r"\fscx112\fscy112" if use_pop else ""
+                            formatted_words.append(f"{{\\bord4\\3c&H0000FFFF\\c&H00000000{pop_tag}}}[{tok['word']}]{{\\rCutflow}}")
+                        elif is_italic:
+                            pop_tag = r"\fscx108\fscy108" if use_pop else ""
+                            formatted_words.append(f"{{\\i1\\c{accent_color}\\3c&H00111111\\bord4{pop_tag}}}{tok['word']}{{\\rCutflow}}")
+                        elif caption_style == "evo":
+                            pop_tag = r"\fscx114\fscy114" if use_pop else ""
+                            formatted_words.append(f"{{\\bord6\\3c&H8A221832\\c{accent_color}{pop_tag}\\blur1.2}}{tok['word']}{{\\rCutflow}}")
                         elif use_pop:
                             formatted_words.append(f"{{\\fscx114\\fscy114\\c{accent_color}}}{tok['word']}{{\\rCutflow}}")
                         else:
                             formatted_words.append(f"{{\\c{accent_color}}}{tok['word']}{{\\rCutflow}}")
                     else:
-                        formatted_words.append(f"{{\\c{upcoming_color}}}{tok['word']}")
+                        formatted_words.append(f"{it_prefix}{{\\c{upcoming_color}}}{tok['word']}{it_suffix}")
 
                 caption = " ".join(formatted_words)
                 if len(raw_caption) > max_chars:
@@ -1110,19 +1139,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 lines.append(f"Dialogue: 0,{ass_time(slice_start)},{ass_time(slice_end)},Cutflow,,0,0,0,,{caption}")
         else:
             caption = raw_caption
+            it_prefix = r"{\i1}" if is_italic else ""
+            it_suffix = r"{\i0}" if is_italic else ""
             if style_karaoke and len(tokens) == 1:
                 if is_badge_box:
-                    if use_pop:
-                        caption = f"{{\\bord8\\3c&H00FFFFFF\\c&H00000000\\fscx112\\fscy112}}{caption}{{\\rCutflow}}"
-                    else:
-                        caption = f"{{\\bord8\\3c&H00FFFFFF\\c&H00000000}}{caption}{{\\rCutflow}}"
+                    pop_tag = r"\fscx112\fscy112" if use_pop else ""
+                    caption = f"{{\\bord10\\3c&H00FFFFFF\\c&H00000000{pop_tag}}}{caption}{{\\rCutflow}}"
+                elif is_bracket:
+                    pop_tag = r"\fscx112\fscy112" if use_pop else ""
+                    caption = f"{{\\bord4\\3c&H0000FFFF\\c&H00000000{pop_tag}}}[{caption}]{{\\rCutflow}}"
+                elif is_italic:
+                    pop_tag = r"\fscx108\fscy108" if use_pop else ""
+                    caption = f"{{\\i1\\c{accent_color}\\3c&H00111111\\bord4{pop_tag}}}{caption}{{\\rCutflow}}"
+                elif caption_style == "evo":
+                    pop_tag = r"\fscx114\fscy114" if use_pop else ""
+                    caption = f"{{\\bord6\\3c&H8A221832\\c{accent_color}{pop_tag}\\blur1.2}}{caption}{{\\rCutflow}}"
                 elif use_pop:
                     caption = f"{{\\fscx114\\fscy114\\c{accent_color}}}{caption}{{\\rCutflow}}"
                 else:
                     caption = f"{{\\c{accent_color}}}{caption}{{\\rCutflow}}"
             elif len(tokens) > 1 and style.get("accent_color"):
                 last = tokens[-1]["word"]
-                caption = " ".join(t["word"] for t in tokens[:-1]) + f" {{\\c{accent_color}}}{last}{{\\c{base_color}}}"
+                caption = " ".join(f"{it_prefix}{t['word']}{it_suffix}" for t in tokens[:-1]) + f" {it_prefix}{{\\c{accent_color}}}{last}{{\\c{base_color}}}{it_suffix}"
+            elif is_italic:
+                caption = f"{it_prefix}{caption}{it_suffix}"
+
             if len(raw_caption) > max_chars:
                 size = max(38, int(base_size * max_chars / len(raw_caption)))
                 caption = f"{{\\fs{size}}}" + caption + "{\\rCutflow}"
@@ -1164,15 +1205,47 @@ def write_srt(path: Path, words: list[dict], start: float, end: float, auto_emoj
     path.write_text("\n".join(lines) if lines else "1\n00:00:00,000 --> 00:00:01,000\n...\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None) -> None:
-    dimensions = {"9:16": "1080:1920", "1:1": "1080:1080", "16:9": "1920:1080"}
-    width, height = dimensions[aspect].split(":")
+def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None, fit_mode: str = "fit") -> None:
+    dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
+    width, height = dimensions[aspect]
     ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
-    # High-level tailored finishing per style: custom contrast, saturation, brightness, and sharpness
     profile = STYLE_PROFILES.get(template, STYLE_PROFILES["podcast"])
     eq_filter = profile.get("eq", "contrast=1.04:saturation=1.06:brightness=0.005")
     unsharp_filter = profile.get("unsharp", "5:5:0.25:3:3:0.0")
-    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},ass='{ass_path}'"
+
+    # Detect source dimensions to determine if smart canvas fill is needed
+    try:
+        source_info = probe_video(source)
+        s_w = source_info.get("width") or 1920
+        s_h = source_info.get("height") or 1080
+    except Exception:
+        s_w, s_h = 1920, 1080
+
+    source_ratio = s_w / s_h
+    target_ratio = width / height
+    is_mismatch = abs(source_ratio - target_ratio) > 0.18
+
+    # Smart Captions.ai Canvas Fill with Ambient Blur Background:
+    # Keeps 100% of the video visible without aggressive zoom/crop
+    if is_mismatch and aspect == "9:16" and fit_mode != "crop":
+        vf = (
+            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},boxblur=28:5,eq=brightness=-0.12:contrast=1.06[bg];"
+            f"[0:v]scale={width}:-2:flags=lanczos,eq={eq_filter},unsharp={unsharp_filter}[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp];"
+            f"[comp]ass='{ass_path}'"
+        )
+    elif is_mismatch and aspect == "1:1" and fit_mode != "crop":
+        vf = (
+            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},boxblur=24:4,eq=brightness=-0.10:contrast=1.05[bg];"
+            f"[0:v]scale={width}:-2:flags=lanczos,eq={eq_filter},unsharp={unsharp_filter}[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp];"
+            f"[comp]ass='{ass_path}'"
+        )
+    else:
+        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},ass='{ass_path}'"
+
     duration = max(1, end - start)
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",

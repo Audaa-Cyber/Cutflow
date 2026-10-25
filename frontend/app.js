@@ -485,24 +485,115 @@ function init() {
     link.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
 
-  // Visual 9:16 Caption Style Cards
+  // Caption Style Names & Selection Sync
+  const captionStyleNames = {
+    focus: "Focus · Inverted Dialogue Badge Boxes",
+    linen: "Linen · Editorial Serif Hook & Subtitles",
+    evo: "Evo · Frosted Glass Gradient Pill & Cyan Pop",
+    lift: "Lift · Curved Header Banner & Emerald Pop",
+    stack: "Stack · Brutalist Technical Box & Grid",
+    align: "Align · Polaroid Frame & Letterbox Dialogue",
+    prime: "Prime · Trending Viral Active Pop",
+    impact: "Impact II · Bold High-Contrast Punch",
+    paper: "Paper II · Polished Editorial Pill",
+    elevate: "Elevate · Luxury Minimal Aesthetic",
+    pop: "Pop · Bouncy Neon Kinetic",
+    y2k: "Y2K · Retro Cyberpunk Glow",
+    chalk: "Chalk · Tutorial Sketch Highlighter",
+    clean: "Clean · Subtitle Standard",
+    pulse: "Pulse · Dynamic Karaoke Highlight",
+    glow: "Neon Cyber Glow · Radiant Glowing Accent",
+    hormozi: "Hormozi Gold Pop · Bold Creator Style",
+    karaoke: "Dynamic Karaoke Pill · High-Contrast Pill",
+  };
+
+  function selectCaptionStyle(style) {
+    if (!style) return;
+    state.captionStyle = style;
+    $$(".caption-card").forEach((c) => {
+      c.classList.toggle("selected", c.dataset.captionStyle === style);
+    });
+    const select = $("#caption-style");
+    if (select) select.value = style;
+    const label = captionStyleNames[style] || style;
+    const indicator = $("#active-caption-name");
+    if (indicator) indicator.textContent = label;
+    const modalLabel = $("#modal-active-label");
+    if (modalLabel) modalLabel.textContent = label;
+  }
+
+  // Visual 9:16 Caption Style Cards (Showcase + Modal Grid)
   $$(".caption-card").forEach((card) => {
     card.addEventListener("click", () => {
-      const style = card.dataset.captionStyle;
-      state.captionStyle = style;
-      $$(".caption-card").forEach((c) => c.classList.toggle("selected", c === card));
-      const select = $("#caption-style");
-      if (select) select.value = style;
+      selectCaptionStyle(card.dataset.captionStyle);
     });
   });
 
   const captionSelect = $("#caption-style");
   if (captionSelect) {
     captionSelect.addEventListener("change", (event) => {
-      state.captionStyle = event.target.value;
-      $$(".caption-card").forEach((c) => c.classList.toggle("selected", c.dataset.captionStyle === event.target.value));
+      selectCaptionStyle(event.target.value);
     });
   }
+
+  // Caption Explorer Modal
+  const modal = $("#caption-explorer-modal");
+  function openCaptionExplorer() {
+    if (modal) {
+      modal.hidden = false;
+      modal.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+  }
+  function closeCaptionExplorer() {
+    if (modal) {
+      modal.classList.remove("open");
+      setTimeout(() => { modal.hidden = true; }, 220);
+      document.body.style.overflow = "";
+    }
+  }
+
+  const openModalBtn = $("#open-caption-explorer-btn");
+  if (openModalBtn) openModalBtn.addEventListener("click", openCaptionExplorer);
+
+  const closeModalBtn = $("#close-caption-explorer-btn");
+  if (closeModalBtn) closeModalBtn.addEventListener("click", closeCaptionExplorer);
+
+  const modalApplyBtn = $("#modal-apply-btn");
+  if (modalApplyBtn) {
+    modalApplyBtn.addEventListener("click", () => {
+      closeCaptionExplorer();
+      showToast(`Selected ${captionStyleNames[state.captionStyle] || state.captionStyle}`);
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeCaptionExplorer();
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal && modal.classList.contains("open")) {
+      closeCaptionExplorer();
+    }
+  });
+
+  // Modal Category Filter Tabs
+  $$(".caption-tab-btn").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      $$(".caption-tab-btn").forEach((t) => t.classList.toggle("active", t === tab));
+      const cat = tab.dataset.category;
+      $$("#modal-caption-grid .caption-card").forEach((card) => {
+        if (cat === "all") {
+          card.style.display = "";
+        } else {
+          const cardCats = (card.dataset.category || "").split(" ");
+          card.style.display = cardCats.includes(cat) ? "" : "none";
+        }
+      });
+    });
+  });
   $$(".caption-mode-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       const mode = tab.dataset.captionMode;

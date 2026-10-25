@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 640" width="360" height="640">
+  <defs>
+    <linearGradient id="bg_pulse" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#12221e"/>
+      <stop offset="100%" stop-color="#08100e"/>
+    </linearGradient>
+    <radialGradient id="light_pulse" cx="50%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#10ac84" stop-opacity="0.22"/>
+      <stop offset="70%" stop-color="#08100e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <rect width="360" height="640" fill="url(#bg_pulse)"/>
+  <rect width="360" height="640" fill="url(#light_pulse)"/>
+  <!-- Simulated Video Speaker Silhouette -->
+  <g fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.06)" stroke-width="1.5">
+    <circle cx="180" cy="250" r="54"/>
+    <path d="M90 380 Q180 320 270 380 L270 410 L90 410 Z"/>
+  </g>
+  <!-- Subtle Soundwaves Background -->
+  <g fill="rgba(255,255,255,0.07)">
+    <rect x="36" y="340" width="3" height="18" rx="1.5"/>
+    <rect x="44" y="332" width="3" height="34" rx="1.5"/>
+    <rect x="52" y="324" width="3" height="50" rx="1.5"/>
+    <rect x="60" y="336" width="3" height="26" rx="1.5"/>
+    <rect x="300" y="336" width="3" height="26" rx="1.5"/>
+    <rect x="308" y="324" width="3" height="50" rx="1.5"/>
+    <rect x="316" y="332" width="3" height="34" rx="1.5"/>
+    <rect x="324" y="340" width="3" height="18" rx="1.5"/>
+  </g>
+  <!-- Top Status Pill -->
+  <rect x="20" y="22" width="86" height="24" rx="12" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+  <text x="63" y="38" fill="#1dd1a1" font-family="system-ui, sans-serif" font-size="9" font-weight="800" letter-spacing="1" text-anchor="middle">KARAOKE</text>
+  <circle cx="334" cy="34" r="3" fill="rgba(255,255,255,0.45)"/>
+  <circle cx="323" cy="34" r="3" fill="rgba(255,255,255,0.45)"/>
+  <circle cx="312" cy="34" r="3" fill="rgba(255,255,255,0.45)"/>
+  <text x="180" y="135" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="800" letter-spacing="0.8" text-anchor="middle" opacity="0.95">RHYTHMIC CADENCE</text>
+  <g transform="translate(180, 440)">
+    <text x="0" y="-30" fill="rgba(255,255,255,0.65)" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" text-anchor="middle">sync to the</text>
+    <text x="0" y="15" fill="#1dd1a1" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="900" letter-spacing="0.5" text-anchor="middle" filter="url(#glow)">PULSE FLOW</text>
+    <text x="0" y="52" fill="rgba(255,255,255,0.5)" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" text-anchor="middle">every second</text>
+  </g>
+  <!-- Bottom Style Name Bar -->
+  <rect x="18" y="582" width="324" height="40" rx="10" fill="rgba(0,0,0,0.7)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+  <text x="34" y="607" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="800">PULSE</text>
+  <text x="326" y="607" fill="#1dd1a1" font-family="system-ui, sans-serif" font-size="10" font-weight="600" text-anchor="end">Karaoke Mint</text>
+</svg>
