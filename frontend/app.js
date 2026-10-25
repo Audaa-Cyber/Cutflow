@@ -1,7 +1,9 @@
 const state = {
   template: "podcast",
   aspectRatio: "9:16",
-  captionStyle: "clean",
+  captionStyle: "pulse",
+  autoEmoji: true,
+  uppercase: false,
   sourceMode: "upload",
   file: null,
   jobs: [],
@@ -79,6 +81,8 @@ function readSettings() {
     template: state.template,
     aspect_ratio: state.aspectRatio,
     caption_style: state.captionStyle,
+    auto_emoji: $("#caption-auto-emoji") ? $("#caption-auto-emoji").checked : true,
+    uppercase: $("#caption-uppercase") ? $("#caption-uppercase").checked : false,
     clip_count: Number($("#clip-count").value),
     min_duration: min,
     max_duration: max,
@@ -241,6 +245,11 @@ function renderClips(job) {
           </label>
           <a class="download-button" href="${escapeHtml(clip.download_url)}?resolution=1080" download="${escapeHtml(clip.filename)}"><span>↓</span> Download 1080p</a>
         </div>
+        <div class="subtitles-download-row">
+          <span class="subtitles-label">SUBTITLES:</span>
+          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.srt'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.srt'))}">📄 .SRT</a>
+          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.ass'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.ass'))}">✨ .ASS (Karaoke)</a>
+        </div>
         <p class="quality-download-note">First export at a new quality takes a moment. Later downloads are cached.</p>
       </div>
     </article>`).join("");
@@ -293,12 +302,17 @@ async function cancelProject(id) {
     renderProcessing(data);
     renderProjects();
     clearTimeout(state.pollTimer);
+    if (state.activeJobId === id) {
+      state.activeJobId = null;
+    }
     showToast("Project processing was cancelled.");
     const button = $("#create-button");
     if (button) {
       button.disabled = false;
       $("#create-button-label").textContent = "Find my best clips";
     }
+    const fileInput = $("#video-file");
+    if (fileInput) fileInput.value = "";
   } catch (error) {
     showToast(error.message || "Failed to cancel project.");
   }
@@ -370,6 +384,13 @@ function init() {
     link.innerHTML = `<span>↓</span> Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
   $("#caption-style").addEventListener("change", (event) => { state.captionStyle = event.target.value; });
+  if ($("#caption-auto-emoji")) {
+    $("#caption-auto-emoji").addEventListener("change", (event) => { state.autoEmoji = event.target.checked; });
+  }
+  if ($("#caption-uppercase")) {
+    $("#caption-uppercase").addEventListener("change", (event) => { state.uppercase = event.target.checked; });
+  }
+  $("#video-file").addEventListener("click", () => { $("#video-file").value = ""; });
   $("#video-file").addEventListener("change", (event) => setFile(event.target.files?.[0]));
   const dropzone = $("#dropzone");
   ["dragenter", "dragover"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.add("dragover"); }));

@@ -82,7 +82,7 @@ class CutflowTests(unittest.TestCase):
 
 
     def test_caption_presets_and_phrase_captions_stay_readable(self):
-        self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow"})
+        self.assertEqual(set(CAPTION_STYLES), {"clean", "pulse", "glow", "hormozi", "karaoke"})
         words = [
             {"start": i * 0.4, "end": i * 0.4 + 0.3, "word": word}
             for i, word in enumerate("This is a really useful explanation that should remain inside the frame.".split())
@@ -101,6 +101,23 @@ class CutflowTests(unittest.TestCase):
             caption = line.split(",,", 1)[-1]
             visible_caption = re.sub(r"\{[^}]*\}", "", caption)
             self.assertLessEqual(len(visible_caption), 28)
+
+    def test_write_srt_and_auto_emoji_integration(self):
+        from backend.app import write_srt
+        words = [
+            {"start": 0.0, "end": 0.5, "word": "This"},
+            {"start": 0.5, "end": 1.0, "word": "secret"},
+            {"start": 1.0, "end": 1.5, "word": "makes"},
+            {"start": 1.5, "end": 2.0, "word": "money"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            srt_path = Path(directory) / "test.srt"
+            write_srt(srt_path, words, 0, 2.5, auto_emoji=True, uppercase=True)
+            content = srt_path.read_text(encoding="utf-8")
+        self.assertIn("00:00:00,000 -->", content)
+        self.assertIn("💡", content)
+        self.assertIn("💰", content)
+        self.assertIn("MONEY", content)
 
     def test_caption_layout_supports_all_output_ratios(self):
         words = [{"start": 0.2, "end": 0.8, "word": "Hello world."}]

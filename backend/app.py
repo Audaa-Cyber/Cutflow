@@ -43,9 +43,28 @@ AI_MODEL = os.getenv("AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be", "vimeo.com", "www.vimeo.com", "player.vimeo.com"}
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 CAPTION_STYLES = {
-    "clean": {"label": "Clean", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0},
-    "pulse": {"label": "Pulse", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 3, "shadow": 2, "glow": 0},
-    "glow": {"label": "Glow", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00302A16", "outline": 3, "shadow": 3, "glow": 1},
+    "clean": {"label": "Clean Subtitles", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0, "karaoke": False},
+    "pulse": {"label": "Pulse Viral (Karaoke)", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0, "karaoke": True},
+    "glow": {"label": "Neon Cyber Glow", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "outline_color": "&H00302A16", "outline": 4, "shadow": 3, "glow": 1, "karaoke": True},
+    "hormozi": {"label": "Hormozi Gold Pop", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0000E6FF", "outline_color": "&H00000000", "outline": 6, "shadow": 2, "glow": 0, "karaoke": True, "uppercase": True},
+    "karaoke": {"label": "Dynamic Karaoke Pill", "font": "DejaVu Sans", "base_color": "&H00F0F0F0", "accent_color": "&H00D5FF5F", "outline_color": "&H00181A14", "outline": 5, "shadow": 3, "glow": 0, "karaoke": True},
+}
+
+EMOJI_MAP = {
+    "fire": "🔥", "lit": "🔥", "hot": "🔥",
+    "money": "💰", "cash": "💰", "dollar": "💰", "dollars": "💰", "rich": "💰", "revenue": "💰",
+    "mind": "🧠", "brain": "🧠", "think": "🧠", "smart": "🧠",
+    "idea": "💡", "secret": "💡", "tip": "💡", "tips": "💡", "hack": "💡",
+    "crazy": "⚡", "wild": "⚡", "insane": "⚡", "power": "⚡", "shock": "⚡", "shocked": "⚡",
+    "win": "🏆", "winner": "🏆", "champion": "🏆", "success": "🏆", "best": "🏆",
+    "love": "❤️", "heart": "❤️", "favorite": "❤️",
+    "rocket": "🚀", "growth": "🚀", "scale": "🚀", "fast": "🚀", "moon": "🚀",
+    "music": "🎵", "song": "🎵", "beat": "🎵", "dance": "🎵", "sing": "🎵",
+    "warning": "⚠️", "mistake": "⚠️", "danger": "⚠️", "stop": "⚠️", "problem": "⚠️",
+    "laugh": "😂", "funny": "😂", "joke": "😂", "hilarious": "😂",
+    "time": "⏱️", "clock": "⏱️", "hour": "⏱️", "minute": "⏱️",
+    "game": "🎮", "gaming": "🎮", "play": "🎮",
+    "target": "🎯", "goal": "🎯", "focus": "🎯",
 }
 
 TEMPLATES = {
@@ -188,7 +207,7 @@ def load_persisted_jobs() -> None:
 
 
 load_persisted_jobs()
-POOL = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("WORKER_CONCURRENCY", "1"))))
+POOL = ThreadPoolExecutor(max_workers=max(2, int(os.getenv("WORKER_CONCURRENCY", "2"))))
 
 app = FastAPI(title="Cutflow", version="0.2.0", description="AI-assisted short-form video clipping workspace")
 
@@ -202,6 +221,8 @@ class URLJob(BaseModel):
     min_duration: int = Field(default=20, ge=10, le=60)
     max_duration: int = Field(default=45, ge=15, le=90)
     caption_style: str = "clean"
+    auto_emoji: bool = True
+    uppercase: bool = False
 
 
 def update_job(job_id: str, **updates) -> None:
@@ -319,6 +340,8 @@ def transcribe(path: Path, job_id: str) -> tuple[list[dict], str, str]:
     words: list[dict] = []
     transcript_parts: list[str] = []
     for segment in segments:
+        if job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled":
+            raise JobCancelledException("Processing was cancelled by user.")
         segment_text = (segment.text or "").strip()
         if segment_text:
             transcript_parts.append(segment_text)
@@ -457,16 +480,29 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
     return selected
 
 
-def detect_scene_changes(path: Path) -> list[float]:
+def detect_scene_changes(path: Path, job_id: str | None = None) -> list[float]:
     """Use FFmpeg's scene-change detector as a lightweight visual signal."""
+    if job_id and (job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled"):
+        raise JobCancelledException("Processing was cancelled by user.")
     command = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vf", "fps=2,scale=320:-2:flags=fast_bilinear,select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if job_id:
+            with LOCK:
+                ACTIVE_PROCESSES[job_id] = process
+        try:
+            stdout, stderr = process.communicate(timeout=300)
+        finally:
+            if job_id:
+                with LOCK:
+                    ACTIVE_PROCESSES.pop(job_id, None)
     except (OSError, subprocess.TimeoutExpired):
         return []
-    if result.returncode not in (0, 255):
+    if job_id and (job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled"):
+        raise JobCancelledException("Processing was cancelled by user.")
+    if process.returncode not in (0, 255):
         return []
-    return sorted({round(float(match), 2) for match in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr)})
+    return sorted({round(float(match), 2) for match in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", stderr or "")})
 
 
 def identify_video_style(
@@ -704,7 +740,7 @@ def _ass_escape(text: str) -> str:
     return text.replace("\\", "").replace("{", "(").replace("}", ")").replace(",", r"\,")
 
 
-def write_ass(path: Path, words: list[dict], start: float, end: float, aspect: str, caption_style: str = "clean") -> None:
+def write_ass(path: Path, words: list[dict], start: float, end: float, aspect: str, caption_style: str = "clean", auto_emoji: bool = True, uppercase: bool = False) -> None:
     dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
     width, height = dimensions[aspect]
     style = CAPTION_STYLES.get(caption_style, CAPTION_STYLES["clean"])
@@ -730,25 +766,98 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     visible = [w for w in words if float(w["end"]) > start and float(w["start"]) < end]
     groups = _caption_groups(visible, max_chars=max_chars)
     lines = []
+    style_karaoke = style.get("karaoke", False)
+    force_upper = uppercase or style.get("uppercase", False)
+
     for group in groups:
         line_start = max(0.0, float(group[0]["start"]) - start)
         line_end = min(end - start, float(group[-1]["end"]) - start + 0.14)
         if line_end <= line_start:
             continue
-        safe_words = [_ass_escape(str(w["word"]).strip()) for w in group]
-        caption = " ".join(safe_words)
-        # Pulse/Glow give the final spoken word a restrained brand-color accent.
-        if caption_style in {"pulse", "glow"} and len(safe_words) > 1:
-            last = safe_words[-1]
-            caption = " ".join(safe_words[:-1]) + f" {{\\\\c{style['accent_color']}}}{last}{{\\\\c{style['base_color']}}}"
-        # Slightly shrink exceptionally long single words rather than clipping them at the edges.
-        if len(caption) > max_chars:
-            size = max(38, int(base_size * max_chars / len(caption)))
-            caption = f"{{\\\\fs{size}}}" + caption + "{\\\\rCutflow}"
-        if style["glow"]:
-            caption = f"{{\\\\blur1.2}}{caption}{{\\\\blur0}}"
-        lines.append(f"Dialogue: 0,{ass_time(line_start)},{ass_time(line_end)},Cutflow,,0,0,0,,{caption}")
+
+        tokens = []
+        for w in group:
+            raw_w = str(w.get("word", "")).strip()
+            clean_token = _ass_escape(raw_w)
+            norm = raw_w.lower().strip(".,!?;:\"'")
+            if auto_emoji and norm in EMOJI_MAP:
+                clean_token = f"{clean_token} {EMOJI_MAP[norm]}"
+            if force_upper:
+                clean_token = clean_token.upper()
+            w_s = max(0.0, float(w.get("start", start)) - start)
+            w_e = min(end - start, float(w.get("end", end)) - start)
+            tokens.append({"word": clean_token, "start": w_s, "end": w_e})
+
+        if not tokens:
+            continue
+
+        raw_caption = " ".join(t["word"] for t in tokens)
+
+        if style_karaoke and len(tokens) > 1:
+            for i, active_token in enumerate(tokens):
+                slice_start = max(line_start, active_token["start"])
+                slice_end = min(line_end, active_token["end"])
+                if i + 1 < len(tokens):
+                    slice_end = max(slice_end, min(line_end, tokens[i+1]["start"]))
+                if slice_end <= slice_start:
+                    slice_end = slice_start + 0.15
+
+                formatted_words = []
+                for j, tok in enumerate(tokens):
+                    if j == i:
+                        formatted_words.append(f"{{\\\\c{style['accent_color']}}}{tok['word']}{{\\\\c{style['base_color']}}}")
+                    else:
+                        formatted_words.append(tok['word'])
+                caption = " ".join(formatted_words)
+                if len(raw_caption) > max_chars:
+                    size = max(38, int(base_size * max_chars / len(raw_caption)))
+                    caption = f"{{\\\\fs{size}}}" + caption + "{\\\\rCutflow}"
+                if style.get("glow"):
+                    caption = f"{{\\\\blur2.0}}{caption}{{\\\\blur0}}"
+                lines.append(f"Dialogue: 0,{ass_time(slice_start)},{ass_time(slice_end)},Cutflow,,0,0,0,,{caption}")
+        else:
+            caption = raw_caption
+            if caption_style in {"pulse", "glow"} and len(tokens) > 1:
+                last = tokens[-1]["word"]
+                caption = " ".join(t["word"] for t in tokens[:-1]) + f" {{\\\\c{style['accent_color']}}}{last}{{\\\\c{style['base_color']}}}"
+            if len(raw_caption) > max_chars:
+                size = max(38, int(base_size * max_chars / len(raw_caption)))
+                caption = f"{{\\\\fs{size}}}" + caption + "{\\\\rCutflow}"
+            if style.get("glow"):
+                caption = f"{{\\\\blur1.2}}{caption}{{\\\\blur0}}"
+            lines.append(f"Dialogue: 0,{ass_time(line_start)},{ass_time(line_end)},Cutflow,,0,0,0,,{caption}")
+
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_srt(path: Path, words: list[dict], start: float, end: float, auto_emoji: bool = True, uppercase: bool = False) -> None:
+    visible = [w for w in words if float(w["end"]) > start and float(w["start"]) < end]
+    groups = _caption_groups(visible, max_chars=34)
+    lines = []
+    idx = 1
+    for group in groups:
+        line_start = max(0.0, float(group[0]["start"]) - start)
+        line_end = min(end - start, float(group[-1]["end"]) - start + 0.14)
+        if line_end <= line_start:
+            continue
+        tokens = []
+        for w in group:
+            raw_w = str(w.get("word", "")).strip()
+            norm = raw_w.lower().strip(".,!?;:\"'")
+            token = raw_w
+            if auto_emoji and norm in EMOJI_MAP:
+                token = f"{token} {EMOJI_MAP[norm]}"
+            if uppercase:
+                token = token.upper()
+            tokens.append(token)
+        text = " ".join(tokens)
+        s_h, s_m, s_s = int(line_start // 3600), int((line_start % 3600) // 60), line_start % 60
+        e_h, e_m, e_s = int(line_end // 3600), int((line_end % 3600) // 60), line_end % 60
+        start_str = f"{s_h:02d}:{s_m:02d}:{int(s_s):02d},{int((s_s % 1) * 1000):03d}"
+        end_str = f"{e_h:02d}:{e_m:02d}:{int(e_s):02d},{int((e_s % 1) * 1000):03d}"
+        lines.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
+        idx += 1
+    path.write_text("\n".join(lines) if lines else "1\n00:00:00,000 --> 00:00:01,000\n...\n", encoding="utf-8")
 
 
 def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None) -> None:
@@ -827,7 +936,7 @@ def process_job(job_id: str) -> None:
         words, transcript, language = transcribe(source, job_id)
         check_cancelled()
         update_job(job_id, progress=28, stage="Analyzing visuals", message="Detecting scene changes to help find stronger moments.", transcript_preview=transcript[:1200], language=language)
-        scene_changes = detect_scene_changes(source)
+        scene_changes = detect_scene_changes(source, job_id=job_id)
         check_cancelled()
         update_job(job_id, progress=34, stage="Finding highlights", message=f"Ranking moments with speech and {len(scene_changes)} detected scene changes.", transcript_preview=transcript[:1200], language=language, scene_change_count=len(scene_changes))
 
@@ -905,10 +1014,14 @@ def process_job(job_id: str) -> None:
             clip_name = f"cutflow-{index:02d}.mp4"
             output = output_dir / clip_name
             ass_path = output_dir / f"cutflow-{index:02d}.ass"
+            srt_path = output_dir / f"cutflow-{index:02d}.srt"
             caption_style_to_use = job.get("caption_style", "clean")
             if caption_style_to_use == "clean" and profile.get("default_caption"):
                 caption_style_to_use = profile["default_caption"]
-            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use)
+            auto_emoji = job.get("auto_emoji", True)
+            uppercase = job.get("uppercase", False)
+            write_ass(ass_path, words, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, auto_emoji=auto_emoji, uppercase=uppercase)
+            write_srt(srt_path, words, candidate["start"], candidate["end"], auto_emoji=auto_emoji, uppercase=uppercase)
             check_cancelled()
             render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id)
             completed.append({
@@ -916,6 +1029,8 @@ def process_job(job_id: str) -> None:
                 "id": str(uuid.uuid4()),
                 "filename": clip_name,
                 "download_url": f"/api/jobs/{job_id}/clips/{clip_name}",
+                "srt_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.srt')}",
+                "ass_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.ass')}",
                 "size": output.stat().st_size,
                 "aspect_ratio": job["aspect_ratio"],
                 "finishing_label": profile["label"],
@@ -938,7 +1053,7 @@ def process_job(job_id: str) -> None:
             ACTIVE_PROCESSES.pop(job_id, None)
 
 
-def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "", caption_style: str = "clean") -> dict:
+def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: int, max_duration: int, source_path: str | None = None, source_url: str | None = None, edit_prompt: str = "", caption_style: str = "clean", auto_emoji: bool = True, uppercase: bool = False, job_id: str | None = None) -> dict:
     if template not in TEMPLATES and template != "auto":
         raise HTTPException(400, "Choose a valid template.")
     if aspect_ratio not in {"9:16", "1:1", "16:9"}:
@@ -949,14 +1064,15 @@ def create_job(template: str, aspect_ratio: str, clip_count: int, min_duration: 
         raise HTTPException(400, "Choose between 1 and 8 clips.")
     if not (10 <= min_duration < max_duration <= 90):
         raise HTTPException(400, "Clip duration must be between 10 and 90 seconds, with minimum below maximum.")
-    job_id = uuid.uuid4().hex
+    job_id = job_id or uuid.uuid4().hex
     template_label = "Smart Auto-Detect" if template == "auto" else TEMPLATES[template]["label"]
     job = {
         "id": job_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
         "message": "Your video is queued for analysis.", "template": template,
         "template_label": template_label, "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
-        "caption_style": caption_style, "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
+        "caption_style": caption_style, "auto_emoji": bool(auto_emoji), "uppercase": bool(uppercase),
+        "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
@@ -999,6 +1115,8 @@ async def upload_job(
     max_duration: int = Form(45),
     edit_prompt: str = Form(""),
     caption_style: str = Form("clean"),
+    auto_emoji: bool = Form(True),
+    uppercase: bool = Form(False),
 ):
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -1023,7 +1141,7 @@ async def upload_job(
     finally:
         await file.close()
     try:
-        job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt, caption_style=caption_style)
+        job = create_job(template, aspect_ratio, clip_count, min_duration, max_duration, source_path=str(destination), edit_prompt=edit_prompt, caption_style=caption_style, auto_emoji=auto_emoji, uppercase=uppercase, job_id=job_id)
     except Exception:
         shutil.rmtree(destination_dir, ignore_errors=True)
         raise
@@ -1032,7 +1150,7 @@ async def upload_job(
 
 @app.post("/api/jobs/url")
 def url_job(payload: URLJob):
-    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url, edit_prompt=payload.edit_prompt, caption_style=payload.caption_style)
+    return create_job(payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration, source_url=payload.source_url, edit_prompt=payload.edit_prompt, caption_style=payload.caption_style, auto_emoji=payload.auto_emoji, uppercase=payload.uppercase)
 
 
 @app.get("/api/jobs")
@@ -1058,11 +1176,33 @@ def download_clip(job_id: str, filename: str, resolution: str | None = Query(def
     with LOCK:
         if job_id not in JOBS:
             raise HTTPException(404, "Project not found.")
-    if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.mp4", filename):
+    if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.(mp4|srt|ass)", filename):
         raise HTTPException(400, "Invalid clip filename.")
     path = OUTPUTS / job_id / filename
     if not path.is_file():
+        if filename.endswith((".srt", ".ass")):
+            with LOCK:
+                job = JOBS.get(job_id)
+            if job:
+                mp4_name = Path(filename).stem + ".mp4"
+                clip_data = next((c for c in job.get("clips", []) if c.get("filename") == mp4_name), None)
+                if clip_data and clip_data.get("text"):
+                    words_raw = clip_data.get("text", "").split()
+                    duration = max(1.0, clip_data["end"] - clip_data["start"])
+                    step = duration / max(1, len(words_raw))
+                    words = [{"start": clip_data["start"] + i * step, "end": clip_data["start"] + (i + 1) * step, "word": w} for i, w in enumerate(words_raw)]
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if filename.endswith(".srt"):
+                        write_srt(path, words, clip_data["start"], clip_data["end"], auto_emoji=job.get("auto_emoji", True), uppercase=job.get("uppercase", False))
+                        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
+                    if filename.endswith(".ass"):
+                        write_ass(path, words, clip_data["start"], clip_data["end"], job.get("aspect_ratio", "9:16"), job.get("caption_style", "clean"), auto_emoji=job.get("auto_emoji", True), uppercase=job.get("uppercase", False))
+                        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
         raise HTTPException(404, "Clip is not ready or does not exist.")
+    if filename.endswith(".srt"):
+        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
+    if filename.endswith(".ass"):
+        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
     if resolution is None or resolution.lower() == "1080":
         return FileResponse(path, media_type="video/mp4", filename=filename)
     if resolution.lower() not in EXPORT_RESOLUTIONS:
