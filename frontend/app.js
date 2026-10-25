@@ -226,20 +226,86 @@ function renderProcessing(job) {
       ${job.warning ? `<p class="warning-message">${escapeHtml(job.warning)}</p>` : ""}
     </article>`;
 }
+function fitCardToVideo(video) {
+  if (!video) return;
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if (!w || !h) return;
+  const ratio = w / h;
+  const card = video.closest(".clip-card");
+  const preview = video.closest(".clip-preview");
+  const badgeRatio = card ? card.querySelector(".clip-badge-ratio") : null;
+
+  let ratioName = "9:16";
+  let ratioClass = "ratio-9-16";
+  let cssRatio = `${w} / ${h}`;
+
+  if (ratio >= 1.35) {
+    // Landscape (16:9, etc.)
+    ratioName = "16:9";
+    ratioClass = "ratio-16-9";
+  } else if (ratio >= 0.85 && ratio < 1.35) {
+    // Square (1:1)
+    ratioName = "1:1";
+    ratioClass = "ratio-1-1";
+  } else {
+    // Vertical (9:16, 4:5, etc.)
+    ratioName = "9:16";
+    ratioClass = "ratio-9-16";
+  }
+
+  if (preview) {
+    preview.style.aspectRatio = cssRatio;
+    preview.style.maxHeight = "none";
+    preview.dataset.detectedRatio = ratioName;
+    preview.dataset.videoWidth = String(w);
+    preview.dataset.videoHeight = String(h);
+  }
+  if (card) {
+    card.classList.remove("ratio-9-16", "ratio-16-9", "ratio-1-1");
+    card.classList.add(ratioClass);
+  }
+  if (badgeRatio) {
+    badgeRatio.textContent = `${ratioName} · ${w}×${h}`;
+  }
+
+  const grid = document.getElementById("clips-grid");
+  if (grid) {
+    grid.classList.toggle("aspect-16-9", ratioName === "16:9");
+    grid.classList.toggle("aspect-1-1", ratioName === "1:1");
+    grid.classList.toggle("aspect-9-16", ratioName === "9:16");
+  }
+}
+
 function renderClips(job) {
   if (job.status !== "completed" && job.status !== "failed") return;
   $("#latest-results").hidden = false;
   $("#results-count").textContent = `${(job.clips || []).length} CLIPS`;
   const grid = $("#clips-grid");
   if (!job.clips?.length) {
-    grid.innerHTML = `<div class="empty-state"><div class="empty-symbol">↻</div><strong>No clips were generated</strong><p>${escapeHtml(job.error || "Try a longer video or a different template.")}</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><div class="empty-symbol"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div><strong>No clips were generated</strong><p>${escapeHtml(job.error || "Try a longer video or a different template.")}</p></div>`;
     return;
   }
-  grid.innerHTML = job.clips.map((clip, index) => `
-    <article class="clip-card">
-      <div class="clip-preview" style="aspect-ratio:${clip.aspect_ratio === "16:9" ? "16/9" : clip.aspect_ratio === "1:1" ? "1/1" : "9/16"};max-height:${clip.aspect_ratio === "16:9" ? "230px" : "390px"}">
+
+  const jobRatio = job.aspect_ratio || "9:16";
+  grid.classList.toggle("aspect-16-9", jobRatio === "16:9");
+  grid.classList.toggle("aspect-1-1", jobRatio === "1:1");
+  grid.classList.toggle("aspect-9-16", jobRatio === "9:16");
+
+  grid.innerHTML = job.clips.map((clip, index) => {
+    const defaultRatio = clip.aspect_ratio || job.aspect_ratio || "9:16";
+    const ratioClass = defaultRatio === "16:9" ? "ratio-16-9" : defaultRatio === "1:1" ? "ratio-1-1" : "ratio-9-16";
+    const initialCssRatio = defaultRatio === "16:9" ? "16 / 9" : defaultRatio === "1:1" ? "1 / 1" : "9 / 16";
+    return `
+    <article class="clip-card ${ratioClass}">
+      <div class="clip-preview" style="aspect-ratio:${initialCssRatio};">
         <video controls preload="metadata" playsinline src="${escapeHtml(clip.download_url)}"></video>
-        <span class="clip-badge">${escapeHtml(clip.aspect_ratio)} · ${formatTime(clip.duration)}</span>
+        <span class="clip-badge">
+          <span class="clip-badge-dot"></span>
+          <span class="clip-badge-ratio">${escapeHtml(defaultRatio)}</span>
+          <span>·</span>
+          <span>${formatTime(clip.duration)}</span>
+        </span>
       </div>
       <div class="clip-body">
         <div class="clip-topline"><strong>${escapeHtml(clip.title || `Clip ${index + 1}`)}</strong><span class="score-pill">${Number(clip.score)} / 100</span></div>
@@ -276,7 +342,18 @@ function renderClips(job) {
         </div>
         <p class="quality-download-note">First export at a new quality takes a moment. Later downloads are cached.</p>
       </div>
-    </article>`).join("");
+    </article>`;
+  }).join("");
+
+  // Dynamically detect intrinsic video aspect ratio when metadata loads
+  grid.querySelectorAll("video").forEach((video) => {
+    const onMeta = () => fitCardToVideo(video);
+    if (video.readyState >= 1 && video.videoWidth) {
+      fitCardToVideo(video);
+    } else {
+      video.addEventListener("loadedmetadata", onMeta, { once: true });
+    }
+  });
 }
 function renderProjects() {
   const list = $("#projects-list");
