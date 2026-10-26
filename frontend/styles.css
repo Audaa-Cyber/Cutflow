@@ -84,8 +84,8 @@
 .source-card{align-self:start}
 .caption-sublabel-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .caption-sublabel-meta{font:8px var(--mono);letter-spacing:.8px;color:#767d6e}
-.caption-card-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}
-.caption-card{border:1px solid var(--border);background:#171915;border-radius:9px;padding:5px;text-align:left;display:flex;flex-direction:column;cursor:pointer;transition:all .16s ease;position:relative}
+.caption-card-grid{display:grid;grid-template-columns:repeat(4,minmax(72px,1fr));gap:8px;margin-bottom:10px}
+.caption-card{border:1px solid var(--border);background:#171915;border-radius:9px;padding:5px;text-align:left;display:flex;flex-direction:column;cursor:pointer;transition:all .16s ease;position:relative;min-width:0;box-sizing:border-box}
 .caption-card:hover{border-color:#555e42;transform:translateY(-2px)}
 .caption-card.selected{border-color:var(--lime);background:#202619;box-shadow:0 0 0 1px var(--lime),0 4px 14px rgba(213,255,95,.18)}
 .caption-card-thumb{position:relative;width:100%;aspect-ratio:9/16;border-radius:6px;overflow:hidden;background:#0b0c0a;margin-bottom:6px}
@@ -114,14 +114,17 @@
 .caption-modal-title p{font-size:11px;color:#8b9283;margin:4px 0 0}
 .caption-modal-close{width:32px;height:32px;border-radius:8px;background:#1f231a;border:1px solid #363d2b;color:#9da493;display:grid;place-items:center;cursor:pointer;transition:all .15s ease}
 .caption-modal-close:hover{background:#2f3724;color:var(--lime);border-color:#55663a;transform:scale(1.05)}
-.caption-modal-tabs{display:flex;gap:6px;padding:12px 24px;background:#10120d;border-bottom:1px solid #24291c;overflow-x:auto}
-.caption-tab-btn{background:transparent;border:1px solid transparent;border-radius:6px;color:#838a7b;font-size:11px;font-weight:600;padding:6px 12px;cursor:pointer;white-space:nowrap;transition:all .15s ease}
-.caption-tab-btn:hover{color:var(--text);background:#191c14}
-.caption-tab-btn.active{background:#242b1b;border-color:#445428;color:var(--lime)}
-.caption-modal-body{padding:20px 24px;overflow-y:auto;flex:1}
-.caption-modal-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
-@media(max-width:920px){.caption-modal-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:540px){.caption-modal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Category Segmented Control */
+.caption-segmented-control{display:flex;gap:4px;padding:10px 24px;background:#10120d;border-bottom:1px solid #24291c;overflow-x:auto;scrollbar-width:none}
+.caption-segmented-control::-webkit-scrollbar{display:none}
+.caption-segmented-btn{background:transparent;border:1px solid transparent;border-radius:7px;color:#858d7c;font-size:11px;font-weight:600;padding:7px 14px;cursor:pointer;white-space:nowrap;transition:all .16s ease;display:inline-flex;align-items:center;gap:6px}
+.caption-segmented-btn:hover{color:var(--text);background:#171a13}
+.caption-segmented-btn.active{background:#232a1c;border-color:#3f4c28;color:var(--lime);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+
+/* Modal Body & High-Performance Grid */
+.caption-modal-body{padding:20px 24px;overflow-y:auto;flex:1;contain:paint;will-change:transform;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+.caption-modal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:12px}
 .caption-modal-footer{padding:14px 24px;border-top:1px solid #272c1f;background:#10120d;display:flex;align-items:center;justify-content:space-between;gap:12px}
 
 /* Vector icon helpers */
@@ -140,6 +143,19 @@
 .clip-preview video{width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;background:#000}
 .clip-badge{position:absolute;left:10px;top:10px;background:rgba(16,17,15,.85);backdrop-filter:blur(8px);border:1px solid rgba(213,255,95,.3);border-radius:6px;padding:4px 8px;font:9px var(--mono);color:var(--lime);display:inline-flex;align-items:center;gap:6px;z-index:2;letter-spacing:.5px}
 .clip-badge-dot{width:5px;height:5px;border-radius:50%;background:var(--lime);box-shadow:0 0 6px rgba(213,255,95,.6)}
+
+/* Hide giant intrusive style match banner and integrate sleek micro-pill */
+.style-match-badge{display:none!important}
+.match-pill{font:9px var(--mono);border:1px solid #3c5428;background:#182014;color:var(--lime);border-radius:5px;padding:3px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;cursor:help}
+.match-pill svg{display:block;width:10px;height:10px;flex-shrink:0}
+
+/* Reprocess / Retry Engine Styling */
+.retry-processing-btn{background:#232b1a;border:1px solid #4a5c2d;color:var(--lime);font-size:11px;font-weight:600;padding:8px 14px;border-radius:6px;transition:background .15s,border-color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.retry-processing-btn svg{width:12px;height:12px;display:block}
+.retry-processing-btn:hover{background:#2e3a20;border-color:#658038;color:#e1ff90;transform:translateY(-1px)}
+.project-action.retry-action{color:var(--lime);border-color:#41502b;display:inline-flex;align-items:center;gap:4px}
+.project-action.retry-action svg{width:11px;height:11px;display:block}
+.project-action.retry-action:hover{border-color:var(--lime);background:#222919}
 
 
 

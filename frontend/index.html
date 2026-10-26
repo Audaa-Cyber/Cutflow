@@ -221,19 +221,19 @@
                 <div class="caption-card-grid" id="caption-card-grid">
                   <button type="button" class="caption-card selected" data-caption-style="focus">
                     <div class="caption-card-thumb">
-                      <img src="/assets/captions/focus.svg" alt="Focus style preview" loading="lazy">
+                      <img src="/assets/captions/focus.webp" alt="Focus style preview" loading="lazy">
                       <span class="caption-card-check">
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                       </span>
                     </div>
                     <div class="caption-card-info">
                       <strong>Focus</strong>
-                      <span>Badge box</span>
+                      <span>Inverted box</span>
                     </div>
                   </button>
                   <button type="button" class="caption-card" data-caption-style="linen">
                     <div class="caption-card-thumb">
-                      <img src="/assets/captions/linen.svg" alt="Linen style preview" loading="lazy">
+                      <img src="/assets/captions/linen.webp" alt="Linen style preview" loading="lazy">
                       <span class="caption-card-check">
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                       </span>
@@ -245,7 +245,7 @@
                   </button>
                   <button type="button" class="caption-card" data-caption-style="evo">
                     <div class="caption-card-thumb">
-                      <img src="/assets/captions/evo.svg" alt="Evo style preview" loading="lazy">
+                      <img src="/assets/captions/evo.webp" alt="Evo style preview" loading="lazy">
                       <span class="caption-card-check">
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                       </span>
@@ -257,7 +257,7 @@
                   </button>
                   <button type="button" class="caption-card" data-caption-style="align">
                     <div class="caption-card-thumb">
-                      <img src="/assets/captions/align.svg" alt="Align style preview" loading="lazy">
+                      <img src="/assets/captions/align.webp" alt="Align style preview" loading="lazy">
                       <span class="caption-card-check">
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                       </span>
@@ -436,12 +436,12 @@
         </button>
       </div>
 
-      <div class="caption-modal-tabs" role="tablist">
-        <button type="button" class="caption-tab-btn active" data-category="all">All Presets (18)</button>
-        <button type="button" class="caption-tab-btn" data-category="flagship">Flagship Canvas (6)</button>
-        <button type="button" class="caption-tab-btn" data-category="viral">Viral Kinetic (7)</button>
-        <button type="button" class="caption-tab-btn" data-category="luxury">Luxury &amp; Editorial (2)</button>
-        <button type="button" class="caption-tab-btn" data-category="minimal">Minimal (3)</button>
+      <div class="caption-segmented-control" role="tablist">
+        <button type="button" class="caption-segmented-btn active" data-category-tab="all" role="tab" aria-selected="true">All Presets (18)</button>
+        <button type="button" class="caption-segmented-btn" data-category-tab="flagship" role="tab" aria-selected="false">Flagship Canvas (6)</button>
+        <button type="button" class="caption-segmented-btn" data-category-tab="viral" role="tab" aria-selected="false">Viral Kinetic (7)</button>
+        <button type="button" class="caption-segmented-btn" data-category-tab="luxury" role="tab" aria-selected="false">Luxury &amp; Editorial (2)</button>
+        <button type="button" class="caption-segmented-btn" data-category-tab="minimal" role="tab" aria-selected="false">Minimal (3)</button>
       </div>
 
       <div class="caption-modal-body">
@@ -449,7 +449,7 @@
           <!-- 1. Focus -->
           <button type="button" class="caption-card selected" data-caption-style="focus" data-category="flagship">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/focus.svg" alt="Focus style" loading="lazy">
+              <img src="/assets/captions/focus.webp" alt="Focus style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -461,7 +461,7 @@
           <!-- 2. Linen -->
           <button type="button" class="caption-card" data-caption-style="linen" data-category="flagship">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/linen.svg" alt="Linen style" loading="lazy">
+              <img src="/assets/captions/linen.webp" alt="Linen style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -473,7 +473,7 @@
           <!-- 3. Evo -->
           <button type="button" class="caption-card" data-caption-style="evo" data-category="flagship">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/evo.svg" alt="Evo style" loading="lazy">
+              <img src="/assets/captions/evo.webp" alt="Evo style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -485,7 +485,7 @@
           <!-- 4. Lift -->
           <button type="button" class="caption-card" data-caption-style="lift" data-category="flagship">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/lift.svg" alt="Lift style" loading="lazy">
+              <img src="/assets/captions/lift.webp" alt="Lift style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -497,7 +497,7 @@
           <!-- 5. Stack -->
           <button type="button" class="caption-card" data-caption-style="stack" data-category="flagship">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/stack.svg" alt="Stack style" loading="lazy">
+              <img src="/assets/captions/stack.webp" alt="Stack style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -509,7 +509,7 @@
           <!-- 6. Align -->
           <button type="button" class="caption-card" data-caption-style="align" data-category="flagship minimal">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/align.svg" alt="Align style" loading="lazy">
+              <img src="/assets/captions/align.webp" alt="Align style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -521,7 +521,7 @@
           <!-- 7. Prime -->
           <button type="button" class="caption-card" data-caption-style="prime" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/prime.svg" alt="Prime style" loading="lazy">
+              <img src="/assets/captions/prime.webp" alt="Prime style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -533,7 +533,7 @@
           <!-- 8. Impact II -->
           <button type="button" class="caption-card" data-caption-style="impact" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/impact.svg" alt="Impact II style" loading="lazy">
+              <img src="/assets/captions/impact.webp" alt="Impact II style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -545,7 +545,7 @@
           <!-- 9. Paper II -->
           <button type="button" class="caption-card" data-caption-style="paper" data-category="luxury">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/paper.svg" alt="Paper II style" loading="lazy">
+              <img src="/assets/captions/paper.webp" alt="Paper II style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -557,7 +557,7 @@
           <!-- 10. Elevate -->
           <button type="button" class="caption-card" data-caption-style="elevate" data-category="luxury">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/elevate.svg" alt="Elevate style" loading="lazy">
+              <img src="/assets/captions/elevate.webp" alt="Elevate style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -569,7 +569,7 @@
           <!-- 11. Pop -->
           <button type="button" class="caption-card" data-caption-style="pop" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/pop.svg" alt="Pop style" loading="lazy">
+              <img src="/assets/captions/pop.webp" alt="Pop style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -581,7 +581,7 @@
           <!-- 12. Y2K -->
           <button type="button" class="caption-card" data-caption-style="y2k" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/y2k.svg" alt="Y2K style" loading="lazy">
+              <img src="/assets/captions/y2k.webp" alt="Y2K style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -593,7 +593,7 @@
           <!-- 13. Chalk -->
           <button type="button" class="caption-card" data-caption-style="chalk" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/chalk.svg" alt="Chalk style" loading="lazy">
+              <img src="/assets/captions/chalk.webp" alt="Chalk style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -605,7 +605,7 @@
           <!-- 14. Clean -->
           <button type="button" class="caption-card" data-caption-style="clean" data-category="minimal">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/clean.svg" alt="Clean style" loading="lazy">
+              <img src="/assets/captions/clean.webp" alt="Clean style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -617,7 +617,7 @@
           <!-- 15. Pulse -->
           <button type="button" class="caption-card" data-caption-style="pulse" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/pulse.svg" alt="Pulse style" loading="lazy">
+              <img src="/assets/captions/pulse.webp" alt="Pulse style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -629,7 +629,7 @@
           <!-- 16. Glow -->
           <button type="button" class="caption-card" data-caption-style="glow" data-category="viral minimal">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/glow.svg" alt="Glow style" loading="lazy">
+              <img src="/assets/captions/glow.webp" alt="Glow style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -641,7 +641,7 @@
           <!-- 17. Hormozi -->
           <button type="button" class="caption-card" data-caption-style="hormozi" data-category="viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/hormozi.svg" alt="Hormozi style" loading="lazy">
+              <img src="/assets/captions/hormozi.webp" alt="Hormozi style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -653,7 +653,7 @@
           <!-- 18. Karaoke -->
           <button type="button" class="caption-card" data-caption-style="karaoke" data-category="flagship viral">
             <div class="caption-card-thumb">
-              <img src="/assets/captions/karaoke.svg" alt="Karaoke style" loading="lazy">
+              <img src="/assets/captions/karaoke.webp" alt="Karaoke style" loading="lazy">
               <span class="caption-card-check"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             </div>
             <div class="caption-card-info">
@@ -677,6 +677,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=2.2"></script>
+  <script src="/app.js?v=2.3"></script>
 </body>
 </html>

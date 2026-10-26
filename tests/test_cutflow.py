@@ -21,7 +21,7 @@ from backend.app import (
     CAPTION_STYLES, STYLE_PROFILES, TEMPLATES, apply_prompt_edit_plan, cancel_job,
     create_job, db_connection, download_clip, extract_headline, parse_caption_prompt,
     identify_video_style, make_title, persist_job, rank_candidates, render_clip,
-    render_export, export_dimensions, write_ass,
+    render_export, export_dimensions, write_ass, retry_job,
 )
 
 
@@ -253,6 +253,28 @@ class CutflowTests(unittest.TestCase):
     def test_cancel_nonexistent_job_raises_404(self):
         with self.assertRaises(HTTPException):
             cancel_job("0" * 32)
+
+    @patch("backend.app.POOL.submit")
+    def test_retry_job_resets_status_and_resubmits(self, mock_submit):
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+            tf.write(b"fake video")
+            source_file = tf.name
+        try:
+            job = create_job("podcast", "9:16", 2, 20, 45, source_path=source_file)
+            job_id = job["id"]
+            # Simulate a failure
+            from backend.app import JOBS, update_job
+            update_job(job_id, status="failed", error="Something timed out")
+            self.assertEqual(JOBS[job_id]["status"], "failed")
+
+            # Now retry
+            retried = retry_job(job_id)
+            self.assertEqual(retried["status"], "queued")
+            self.assertEqual(retried["progress"], 0)
+            self.assertIsNone(JOBS[job_id].get("error"))
+            mock_submit.assert_called()
+        finally:
+            Path(source_file).unlink(missing_ok=True)
 
     def test_flagship_caption_styles_exist_and_are_emoji_free(self):
         flagship_keys = {"focus", "linen", "evo", "lift", "stack", "align"}

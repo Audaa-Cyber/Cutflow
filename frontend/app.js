@@ -211,6 +211,7 @@ function renderProcessing(job) {
       <div class="progress-track"><div class="progress-fill ${job.status === 'cancelled' ? 'cancelled' : ''}" style="width:${percent}%"></div></div>
       <div class="processing-actions">
         ${canCancel ? `<button class="cancel-processing-btn" data-cancel-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Cancel processing</button>` : ""}
+        ${job.status === "failed" ? `<button class="retry-processing-btn" data-retry-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Retry Clipping</button>` : ""}
         ${job.status === "cancelled" || job.status === "failed" ? `<button class="dismiss-processing-btn" data-dismiss-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Remove</button>` : ""}
       </div>
       ${job.style_match ? `
@@ -308,7 +309,13 @@ function renderClips(job) {
         </span>
       </div>
       <div class="clip-body">
-        <div class="clip-topline"><strong>${escapeHtml(clip.title || `Clip ${index + 1}`)}</strong><span class="score-pill">${Number(clip.score)} / 100</span></div>
+        <div class="clip-topline">
+          <strong>${escapeHtml(clip.title || `Clip ${index + 1}`)}</strong>
+          <span style="display:inline-flex;gap:6px;align-items:center;">
+            ${job.style_match ? `<span class="match-pill" title="${escapeHtml(job.style_match.message || 'Style verified')}"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>${Math.round((job.style_match.confidence || 0) * 100)}% match</span>` : ""}
+            <span class="score-pill">${Number(clip.score)} / 100</span>
+          </span>
+        </div>
         <div class="clip-meta"><span>${formatTime(clip.start)} – ${formatTime(clip.end)}</span><span>${escapeHtml(clip.category || templateNames[clip.clip_style || job.template] || job.template_label)}</span></div>
         ${clip.finishing_label ? `
         <div class="clip-finishing-pill" title="${escapeHtml(clip.finishing_desc || "")}">
@@ -378,6 +385,7 @@ function renderProjects() {
       <div class="project-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg></div>
       <div class="project-main"><strong>${escapeHtml(source)} · ${escapeHtml(job.template_label || templateNames[job.template] || "Video")}</strong><span>${escapeHtml(date)} · ${job.clips?.length || 0} clips · ${escapeHtml(job.aspect_ratio || "9:16")}</span></div>
       <span class="status-pill ${escapeHtml(job.status)}">${escapeHtml(status)}</span>
+      ${job.status === "failed" ? `<button class="project-action retry-action" data-retry-job="${escapeHtml(job.id)}"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Retry</button>` : ""}
       ${canCancel ? `<button class="project-action cancel-action" data-cancel-job="${escapeHtml(job.id)}">Cancel</button>` : ""}
       <button class="project-action" data-open-job="${escapeHtml(job.id)}">Open</button>
       <button class="project-action" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete project"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -392,6 +400,25 @@ async function refreshProjects() {
     jobs.forEach(upsertJob);
     renderProjects();
   } catch {}
+}
+async function retryProject(id) {
+  if (!id) return;
+  try {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not reprocess project.");
+    upsertJob(data);
+    state.activeJobId = id;
+    $("#active-processing").hidden = false;
+    $("#latest-results").hidden = true;
+    renderProcessing(data);
+    renderProjects();
+    switchView("create");
+    showToast("Reprocessing clipping job with existing source file…");
+    pollJob(id);
+  } catch (error) {
+    showToast(error.message || "Failed to retry project.");
+  }
 }
 async function cancelProject(id) {
   if (!id) return;
@@ -579,13 +606,17 @@ function init() {
     }
   });
 
-  // Modal Category Filter Tabs
-  $$(".caption-tab-btn").forEach((tab) => {
+  // Modal Category Segmented Control
+  $$(".caption-segmented-btn").forEach((tab) => {
     tab.addEventListener("click", () => {
-      $$(".caption-tab-btn").forEach((t) => t.classList.toggle("active", t === tab));
-      const cat = tab.dataset.category;
+      $$(".caption-segmented-btn").forEach((t) => {
+        const isActive = t === tab;
+        t.classList.toggle("active", isActive);
+        t.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      const cat = tab.dataset.categoryTab;
       $$("#modal-caption-grid .caption-card").forEach((card) => {
-        if (cat === "all") {
+        if (!cat || cat === "all") {
           card.style.display = "";
         } else {
           const cardCats = (card.dataset.category || "").split(" ");
@@ -648,16 +679,20 @@ function init() {
   $("#project-search").addEventListener("input", renderProjects);
   $("#project-filter").addEventListener("change", renderProjects);
   $("#processing-list").addEventListener("click", (event) => {
+    const retry = event.target.closest("[data-retry-job]");
     const cancel = event.target.closest("[data-cancel-job]");
     const dismiss = event.target.closest("[data-dismiss-job]");
-    if (cancel) cancelProject(cancel.dataset.cancelJob);
+    if (retry) retryProject(retry.dataset.retryJob);
+    else if (cancel) cancelProject(cancel.dataset.cancelJob);
     else if (dismiss) dismissJob(dismiss.dataset.dismissJob);
   });
   $("#projects-list").addEventListener("click", (event) => {
+    const retry = event.target.closest("[data-retry-job]");
     const open = event.target.closest("[data-open-job]");
     const remove = event.target.closest("[data-delete-job]");
     const cancel = event.target.closest("[data-cancel-job]");
-    if (cancel) cancelProject(cancel.dataset.cancelJob);
+    if (retry) retryProject(retry.dataset.retryJob);
+    else if (cancel) cancelProject(cancel.dataset.cancelJob);
     else if (open) openProject(open.dataset.openJob);
     else if (remove) deleteProject(remove.dataset.deleteJob);
   });

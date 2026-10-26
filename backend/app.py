@@ -1690,6 +1690,45 @@ def cancel_job(job_id: str):
         return public_job(job)
 
 
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, "Project not found.")
+        active_jobs = sum(1 for existing in JOBS.values() if existing.get("status") in {"queued", "processing"})
+        if active_jobs >= MAX_ACTIVE_JOBS:
+            raise HTTPException(429, f"Cutflow is busy. Wait for active jobs to finish (limit: {MAX_ACTIVE_JOBS}).")
+
+        source_path = job.get("source_path")
+        source_url = job.get("source_url")
+        if not source_path and not source_url:
+            raise HTTPException(400, "Cannot reprocess: source video is missing.")
+        if source_path and not Path(source_path).is_file() and not source_url:
+            raise HTTPException(400, "Source video file is no longer available on disk.")
+
+        out_dir = OUTPUTS / job_id
+        if out_dir.exists():
+            shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        CANCELLED_JOBS.discard(job_id)
+        job.update(
+            status="queued",
+            progress=0,
+            stage="Waiting in queue",
+            message="Reprocessing video clip...",
+            error=None,
+            clips=[],
+            updated_at=time.time(),
+        )
+        persist_job(job)
+    POOL.submit(process_job, job_id)
+    return public_job(job)
+
+
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
