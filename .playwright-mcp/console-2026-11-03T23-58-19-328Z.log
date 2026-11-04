@@ -1,0 +1,4 @@
+[    2222ms] [WARNING]   WARN  [Statsig] SDK initialization has not completed. Reason: Loading:Unrecognized @ https://captions.ai/_astro/statsig.uFKIlcqB.js:0
+[    2224ms] [WARNING]   WARN  [Statsig] SDK initialization has not completed. Reason: Loading:Unrecognized @ https://captions.ai/_astro/statsig.uFKIlcqB.js:0
+[    2484ms] [WARNING]   WARN  [Statsig] The user does not have the required id_type "stableID" for Gate "mrkt_enable_higher_unauth_upload_limits" @ https://captions.ai/_astro/statsig.uFKIlcqB.js:0
+[    2485ms] [WARNING]   WARN  [Statsig] The user does not have the required id_type "userID" for Dynamic config "studio_video_editing_config" @ https://captions.ai/_astro/statsig.uFKIlcqB.js:0

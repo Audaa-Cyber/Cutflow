@@ -157,6 +157,26 @@
 .project-action.retry-action svg{width:11px;height:11px;display:block}
 .project-action.retry-action:hover{border-color:var(--lime);background:#222919}
 
+/* Canvas Framing & Fill Mode Selector */
+.fit-mode-options{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+.fit-mode-btn{background:#131510;border:1px solid #282f1f;border-radius:8px;padding:9px 10px;font-size:11px;font-weight:600;color:#9da493;cursor:pointer;transition:all .18s ease;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center}
+.fit-mode-btn svg{color:#76806a;transition:color .18s ease}
+.fit-mode-btn:hover{background:#1b2015;border-color:#43502c;color:var(--text)}
+.fit-mode-btn.selected{background:#232b1a;border-color:var(--lime);color:var(--lime);box-shadow:0 0 12px rgba(213,255,95,.18)}
+.fit-mode-btn.selected svg{color:var(--lime)}
+
+/* Danger button styling */
+.secondary-button.danger-button {
+  border-color: #532929;
+  background: #231717;
+  color: #ff9e97;
+}
+.secondary-button.danger-button:hover {
+  background: #351f1f;
+  border-color: #7f3939;
+  color: #ffb8b2;
+}
+
 
 
 

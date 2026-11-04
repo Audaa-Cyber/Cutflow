@@ -1,6 +1,7 @@
 const state = {
   template: "podcast",
   aspectRatio: "9:16",
+  fitMode: "blur",
   captionStyle: "focus",
   captionMode: "auto",
   captionPrompt: "",
@@ -88,6 +89,7 @@ function readSettings() {
   return {
     template: state.template,
     aspect_ratio: state.aspectRatio,
+    fit_mode: state.fitMode || "blur",
     caption_style: state.captionStyle || ($("#caption-style") ? $("#caption-style").value : "focus"),
     caption_mode: captionMode,
     caption_prompt: captionPrompt,
@@ -129,8 +131,16 @@ async function createProject() {
         body: JSON.stringify({ ...settings, source_url: $("#video-url").value.trim() }),
       });
     }
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Could not start this project.");
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!response.ok) {
+      let msg = "Server temporarily unavailable. Please retry.";
+      if (isJson) {
+        const err = await response.json().catch(() => ({}));
+        msg = err.detail || msg;
+      }
+      throw new Error(msg);
+    }
+    const data = isJson ? await response.json() : {};
     state.activeJobId = data.id;
     state.jobs = [data, ...state.jobs.filter((job) => job.id !== data.id)];
     $("#active-processing").hidden = false;
@@ -152,8 +162,19 @@ async function pollJob(jobId) {
   clearTimeout(state.pollTimer);
   try {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (response.status === 404) {
+      // Job was deleted or history purged: stop polling immediately
+      state.activeJobId = null;
+      $("#active-processing").hidden = true;
+      return;
+    }
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!response.ok || !isJson) {
+      // Temporary network or tunnel latency: silently retry without crashing
+      state.pollTimer = setTimeout(() => pollJob(jobId), 3000);
+      return;
+    }
     const job = await response.json();
-    if (!response.ok) throw new Error(job.detail || "Could not load project status.");
     upsertJob(job);
     renderProcessing(job);
     if (job.status === "completed") {
@@ -171,8 +192,7 @@ async function pollJob(jobId) {
       return;
     }
     state.pollTimer = setTimeout(() => pollJob(jobId), 2200);
-  } catch (error) {
-    $("#processing-subtitle").textContent = error.message || "Checking project status…";
+  } catch {
     state.pollTimer = setTimeout(() => pollJob(jobId), 4000);
   }
 }
@@ -395,7 +415,8 @@ function renderProjects() {
 async function refreshProjects() {
   try {
     const response = await fetch("/api/jobs");
-    if (!response.ok) return;
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!response.ok || !isJson) return;
     const jobs = await response.json();
     jobs.forEach(upsertJob);
     renderProjects();
@@ -405,6 +426,8 @@ async function retryProject(id) {
   if (!id) return;
   try {
     const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!isJson) { showToast("Server temporarily unavailable. Please retry."); return; }
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Could not reprocess project.");
     upsertJob(data);
@@ -424,6 +447,8 @@ async function cancelProject(id) {
   if (!id) return;
   try {
     const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!isJson) { showToast("Server temporarily unavailable. Please retry."); return; }
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Could not cancel project.");
     upsertJob(data);
@@ -460,6 +485,37 @@ async function deleteProject(id) {
     renderProjects();
     showToast("Project deleted.");
   } catch (error) { showToast(error.message); }
+}
+async function deleteAllProjects() {
+  if (!confirm("Are you sure you want to delete all projects and generated clips? This cannot be undone.")) return;
+  try {
+    const response = await fetch("/api/jobs", { method: "DELETE" });
+    const isJson = (response.headers.get("content-type") || "").includes("application/json");
+    if (!response.ok) {
+      let msg = "Could not delete all projects.";
+      if (isJson) {
+        const err = await response.json().catch(() => ({}));
+        msg = err.detail || msg;
+      }
+      throw new Error(msg);
+    }
+    const data = isJson ? await response.json() : {};
+    state.jobs = [];
+    state.activeJobId = null;
+    clearTimeout(state.pollTimer);
+    $("#active-processing").hidden = true;
+    $("#latest-results").hidden = true;
+    $("#project-count").textContent = "0";
+    const button = $("#create-button");
+    if (button) {
+      button.disabled = false;
+      $("#create-button-label").textContent = "Find my best clips";
+    }
+    renderProjects();
+    showToast(`All projects deleted (${data.deleted_count ?? 0} removed).`);
+  } catch (error) {
+    showToast(error.message || "Failed to delete projects.");
+  }
 }
 function dismissJob(id) {
   if (state.activeJobId === id || !id) {
@@ -498,6 +554,14 @@ function init() {
   $$(".ratio-option").forEach((button) => button.addEventListener("click", () => {
     state.aspectRatio = button.dataset.ratio;
     $$(".ratio-option").forEach((item) => item.classList.toggle("selected", item === button));
+  }));
+  $$(".fit-mode-btn").forEach((button) => button.addEventListener("click", () => {
+    state.fitMode = button.dataset.fitMode;
+    $$(".fit-mode-btn").forEach((item) => {
+      const isSelected = item === button;
+      item.classList.toggle("selected", isSelected);
+      item.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
   }));
   $("#clips-grid").addEventListener("change", (event) => {
     const select = event.target.closest(".quality-select");
@@ -676,6 +740,10 @@ function init() {
   $("#count-plus").addEventListener("click", () => updateCount(1));
   $("#create-button").addEventListener("click", createProject);
   $("#new-project-button").addEventListener("click", () => switchView("create"));
+  const deleteAllBtn = $("#delete-all-projects-button");
+  if (deleteAllBtn) {
+    deleteAllBtn.addEventListener("click", deleteAllProjects);
+  }
   $("#project-search").addEventListener("input", renderProjects);
   $("#project-filter").addEventListener("change", renderProjects);
   $("#processing-list").addEventListener("click", (event) => {

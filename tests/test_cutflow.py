@@ -97,7 +97,7 @@ class CutflowTests(unittest.TestCase):
             write_ass(subtitle, words, 0, 8, "9:16", "pulse")
             rendered = subtitle.read_text(encoding="utf-8")
         self.assertIn("PlayResY: 1920", rendered)
-        self.assertIn("DejaVu Sans", rendered)
+        self.assertIn("Montserrat", rendered)
         self.assertIn("MarginV", rendered)
         self.assertIn(r"\c&H0066F4C6", rendered)
         self.assertIn(r"\fscx114\fscy114", rendered)
@@ -153,7 +153,8 @@ class CutflowTests(unittest.TestCase):
         with patch("backend.app.run_command") as run:
             render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 2, 12, "9:16")
         command = run.call_args.args[0]
-        filter_arg = command[command.index("-vf") + 1]
+        filter_flag = "-filter_complex" if "-filter_complex" in command else "-vf"
+        filter_arg = command[command.index(filter_flag) + 1]
         self.assertIn("eq=contrast=1.04:saturation=1.06", filter_arg)
         self.assertIn("unsharp=5:5:0.25", filter_arg)
         self.assertIn("ass=", filter_arg)
@@ -234,7 +235,8 @@ class CutflowTests(unittest.TestCase):
             with patch("backend.app.run_command") as run:
                 render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 2, 12, "9:16", template=style_name)
             command = run.call_args.args[0]
-            filter_arg = command[command.index("-vf") + 1]
+            filter_flag = "-filter_complex" if "-filter_complex" in command else "-vf"
+            filter_arg = command[command.index(filter_flag) + 1]
             self.assertIn(profile["eq"], filter_arg)
             self.assertIn(profile["unsharp"], filter_arg)
 
@@ -302,12 +304,12 @@ class CutflowTests(unittest.TestCase):
 
         # 2. Linen editorial serif prompt
         linen_style = parse_caption_prompt("Editorial serif linen layout with elegant gold pop")
-        self.assertEqual(linen_style.get("font"), "DejaVu Serif")
+        self.assertEqual(linen_style.get("font"), "Merriweather")
         self.assertEqual(linen_style.get("accent_color"), "&H0000FFFF")
 
         # 3. Stack brutalist technical prompt
         stack_style = parse_caption_prompt("Brutalist monospace technical grid with yellow pop and vertical side text")
-        self.assertEqual(stack_style.get("font"), "DejaVu Sans Mono")
+        self.assertEqual(stack_style.get("font"), "JetBrainsMono")
         self.assertTrue(stack_style.get("vertical_side"))
 
     def test_multi_layer_ass_renders_headline_and_badge_boxes(self):
@@ -340,10 +342,47 @@ class CutflowTests(unittest.TestCase):
         # Auto mode with focus preset
         job_auto = create_job(
             "podcast", "9:16", 2, 20, 45, source_path="dummy.mp4",
-            caption_mode="auto", caption_style="focus",
+            caption_mode="auto", caption_style="focus", fit_mode="letterbox",
         )
         self.assertEqual(job_auto["caption_mode"], "auto")
         self.assertEqual(job_auto["caption_style"], "focus")
+        self.assertEqual(job_auto["fit_mode"], "letterbox")
+
+    def test_fit_mode_framing_options_in_render_clip(self):
+        # 1. Letterbox (clean black bars, no blur)
+        with patch("backend.app.run_command") as run:
+            render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 0, 5, "9:16", fit_mode="letterbox")
+        cmd_letterbox = run.call_args.args[0]
+        self.assertIn("-vf", cmd_letterbox)
+        vf_letterbox = cmd_letterbox[cmd_letterbox.index("-vf") + 1]
+        self.assertIn("pad=", vf_letterbox)
+        self.assertIn("color=black", vf_letterbox)
+        self.assertNotIn("boxblur", vf_letterbox)
+
+        # 2. Crop (smart punch-in, no bars, no blur)
+        with patch("backend.app.run_command") as run:
+            render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 0, 5, "9:16", fit_mode="crop")
+        cmd_crop = run.call_args.args[0]
+        self.assertIn("-vf", cmd_crop)
+        vf_crop = cmd_crop[cmd_crop.index("-vf") + 1]
+        self.assertIn("crop=", vf_crop)
+        self.assertNotIn("boxblur", vf_crop)
+
+        # 3. Blur (ambient softened fill)
+        with patch("backend.app.run_command") as run:
+            render_clip(Path("source.mp4"), Path("out.mp4"), Path("captions.ass"), 0, 5, "9:16", fit_mode="blur")
+        cmd_blur = run.call_args.args[0]
+        self.assertIn("-filter_complex", cmd_blur)
+        fc_blur = cmd_blur[cmd_blur.index("-filter_complex") + 1]
+        self.assertIn("boxblur=28:5", fc_blur)
+
+    def test_all_18_caption_styles_have_rendered_webp_assets(self):
+        captions_dir = Path("frontend/assets/captions")
+        self.assertTrue(captions_dir.exists())
+        for style_name in CAPTION_STYLES:
+            asset = captions_dir / f"{style_name}.webp"
+            self.assertTrue(asset.exists(), f"Missing WebP card for {style_name}")
+            self.assertGreater(asset.stat().st_size, 5000, f"Card for {style_name} is unexpectedly small")
 
 
 if __name__ == "__main__":

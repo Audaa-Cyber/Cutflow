@@ -1,0 +1,3 @@
+[    1664ms] [LOG] Datadog RUM initialized @ https://captions.ai/assets/index-FpE6gXsZ.js:64
+[    2591ms] [WARNING]   WARN  [Statsig] The user does not have the required id_type "userID" for Gate "isemployee" @ https://captions.ai/assets/index-FpE6gXsZ.js:88
+[    2592ms] [WARNING]   WARN  [Statsig] The user does not have the required id_type "stableID" for Gate "studio_enable_phone_signin" @ https://captions.ai/assets/index-FpE6gXsZ.js:88

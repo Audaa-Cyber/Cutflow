@@ -22,12 +22,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from backend.captions import ass as ass_engine
+from backend.captions.presets import PRESETS as CAPTION_PRESETS
+from backend.captions.spec import CaptionSpec, resolve_headline_font
+
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 DATA = Path(os.getenv("CUTFLOW_DATA_DIR", ROOT / "data"))
 UPLOADS = DATA / "uploads"
 OUTPUTS = DATA / "outputs"
-for directory in (UPLOADS, OUTPUTS, FRONTEND):
+FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
+for directory in (UPLOADS, OUTPUTS, FRONTEND, FONTS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -56,115 +61,35 @@ AI_MODEL = os.getenv("AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be", "vimeo.com", "www.vimeo.com", "player.vimeo.com"}
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 CAPTION_STYLES = {
-    # Captions.ai Flagship Layouts (Full-Canvas Multi-Zone)
-    "focus": {
-        "label": "Focus · Inverted Dialogue Badge Boxes",
-        "font": "DejaVu Sans",
-        "base_color": "&H00FFFFFF",
-        "accent_color": "&H00000000",
-        "upcoming_color": "&H00888888",
-        "outline_color": "&H00111111",
-        "badge_box": True,
-        "outline": 5,
-        "shadow": 2,
-        "glow": 0,
-        "karaoke": True,
-        "uppercase": True,
-        "kinetic_pop": True,
-        "show_headline": True,
-    },
-    "linen": {
-        "label": "Linen · Editorial Serif Hook & Subtitles",
-        "font": "DejaVu Serif",
-        "base_color": "&H00F5F5F5",
-        "accent_color": "&H0080C0FF",
-        "upcoming_color": "&H00888888",
-        "outline_color": "&H00111111",
-        "outline": 4,
-        "shadow": 2,
-        "glow": 0,
-        "karaoke": True,
-        "kinetic_pop": False,
-        "show_headline": True,
-    },
-    "evo": {
-        "label": "Evo · Frosted Glass Gradient Pill & Cyan Pop",
-        "font": "DejaVu Sans",
-        "base_color": "&H00FFFFFF",
-        "accent_color": "&H00FFFF00",
-        "upcoming_color": "&H00888888",
-        "outline_color": "&H00161420",
-        "back_color": "&H8A221832",
-        "pill": True,
-        "outline": 4,
-        "shadow": 2,
-        "glow": 1,
-        "karaoke": True,
-        "kinetic_pop": True,
-        "show_headline": True,
-    },
-    "lift": {
-        "label": "Lift · Curved Header Banner & Emerald Pop",
-        "font": "DejaVu Sans",
-        "base_color": "&H00FFFFFF",
-        "accent_color": "&H005FFFD5",
-        "upcoming_color": "&H00888888",
-        "outline_color": "&H00101812",
-        "outline": 5,
-        "shadow": 2,
-        "glow": 1,
-        "karaoke": True,
-        "kinetic_pop": True,
-        "top_banner": True,
-        "show_headline": True,
-    },
-    "stack": {
-        "label": "Stack · Brutalist Technical Box & Grid",
-        "font": "DejaVu Sans Mono",
-        "base_color": "&H00FFFFFF",
-        "accent_color": "&H0000FFFF",
-        "upcoming_color": "&H00777777",
-        "outline_color": "&H00000000",
-        "outline": 5,
-        "shadow": 3,
-        "glow": 0,
-        "karaoke": True,
-        "uppercase": True,
-        "vertical_side": True,
-        "kinetic_pop": True,
-        "show_headline": True,
-    },
-    "align": {
-        "label": "Align · Polaroid Frame & Letterbox Dialogue",
-        "font": "DejaVu Sans",
-        "base_color": "&H00FFFFFF",
-        "accent_color": "&H00FFFFFF",
-        "upcoming_color": "&H00AAAAAA",
-        "outline_color": "&H00101010",
-        "outline": 4,
-        "shadow": 1,
-        "glow": 0,
-        "letterbox": True,
-        "karaoke": True,
-        "kinetic_pop": False,
-        "show_headline": True,
-    },
-
-    # Viral Kinetic Styles
-    "prime": {"label": "Prime · Trending Viral Active", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H00FFFA93", "upcoming_color": "&H00999999", "outline_color": "&H00111111", "outline": 4, "shadow": 2, "glow": 0, "karaoke": True, "kinetic_pop": True},
-    "impact": {"label": "Impact II · Bold High-Contrast", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H00FFFF00", "upcoming_color": "&H00777777", "outline_color": "&H00000000", "outline": 7, "shadow": 3, "glow": 0, "karaoke": True, "uppercase": True, "kinetic_pop": True},
-    "paper": {"label": "Paper II · Editorial Pill", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H00CC7A2A", "upcoming_color": "&H00888888", "outline_color": "&H0015181E", "outline": 5, "shadow": 2, "glow": 0, "karaoke": True, "pill": True, "kinetic_pop": True},
-    "elevate": {"label": "Elevate · Luxury Minimal", "font": "DejaVu Sans", "base_color": "&H00F2F2F2", "accent_color": "&H00638C99", "upcoming_color": "&H00666666", "outline_color": "&H000A0A0A", "outline": 3, "shadow": 1, "glow": 0, "karaoke": True, "kinetic_pop": False},
-    "pop": {"label": "Pop · Bouncy Neon Kinetic", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H00D9B4EE", "upcoming_color": "&H00888888", "outline_color": "&H001A1024", "outline": 5, "shadow": 3, "glow": 1, "karaoke": True, "kinetic_pop": True},
-    "y2k": {"label": "Y2K · Cyberpunk Neon", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H00FF51FF", "upcoming_color": "&H00707070", "outline_color": "&H00000000", "outline": 5, "shadow": 3, "glow": 2, "karaoke": True, "kinetic_pop": True},
-    "chalk": {"label": "Chalk · Tutorial Sketch Highlighter", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0000D4FD", "upcoming_color": "&H00909090", "outline_color": "&H00202020", "outline": 4, "shadow": 2, "glow": 0, "karaoke": True, "kinetic_pop": True},
-
-    # Creator & Clean Presets
-    "clean": {"label": "Clean Subtitles", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "upcoming_color": "&H00B0B0B0", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0, "karaoke": False, "kinetic_pop": False},
-    "pulse": {"label": "Pulse Viral (Karaoke)", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "upcoming_color": "&H00999999", "outline_color": "&H00101010", "outline": 4, "shadow": 2, "glow": 0, "karaoke": True, "kinetic_pop": True},
-    "glow": {"label": "Neon Cyber Glow", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0066F4C6", "upcoming_color": "&H00999999", "outline_color": "&H00302A16", "outline": 4, "shadow": 3, "glow": 1, "karaoke": True, "kinetic_pop": True},
-    "hormozi": {"label": "Hormozi Gold Pop", "font": "DejaVu Sans", "base_color": "&H00FFFFFF", "accent_color": "&H0000E6FF", "upcoming_color": "&H00AAAAAA", "outline_color": "&H00000000", "outline": 6, "shadow": 2, "glow": 0, "karaoke": True, "uppercase": True, "kinetic_pop": True},
-    "karaoke": {"label": "Dynamic Karaoke Pill", "font": "DejaVu Sans", "base_color": "&H00F0F0F0", "accent_color": "&H00D5FF5F", "upcoming_color": "&H00888888", "outline_color": "&H00181A14", "outline": 5, "shadow": 3, "glow": 0, "karaoke": True, "pill": True, "kinetic_pop": True},
+    key: {
+        "label": spec.label,
+        "description": spec.description,
+        "font": spec.font,
+        "headline_font": resolve_headline_font(spec),
+        "accent_color": spec.accent,
+        "base_color": spec.primary,
+        "outline_color": spec.outline,
+        "upcoming_color": spec.upcoming,
+        "back_color": spec.fill,
+        "show_headline": spec.headline != "none",
+        "top_banner": spec.headline == "banner",
+        "badge_box": spec.caption_box == "per_word" or spec.active == "box",
+        "pill": spec.caption_box == "pill",
+        "vertical_side": bool(spec.rail),
+        "outline": int(spec.outline_width * 4),
+        "shadow": int(spec.shadow),
+        "glow": int(spec.glow),
+        "kinetic_pop": spec.active_pop,
+        "caption_box": spec.caption_box,
+        "active": spec.active,
+        "headline": spec.headline,
+        "frame": spec.frame,
+        "zone": spec.zone,
+        "karaoke": spec.karaoke,
+        "uppercase": spec.uppercase,
+        "max_words": spec.max_words,
+    }
+    for key, spec in CAPTION_PRESETS.items()
 }
 
 EMOJI_MAP = {
@@ -354,6 +279,7 @@ class URLJob(BaseModel):
     auto_emoji: bool = False
     uppercase: bool = False
     kinetic_pop: bool = True
+    fit_mode: str = "blur"
 
 
 def update_job(job_id: str, **updates) -> None:
@@ -520,6 +446,38 @@ def sentence_groups(words: list[dict]) -> list[list[dict]]:
     return result
 
 
+def get_uncovered_ranges(selected_clips: list[dict], total_duration: float, buffer: float = 5.0) -> list[tuple[float, float]]:
+    """Return time intervals (s, e) not covered by selected clips (with buffer), min length 5s."""
+    blocked = []
+    for c in selected_clips:
+        b_start = max(0.0, float(c["start"]) - buffer)
+        b_end = min(total_duration, float(c["end"]) + buffer)
+        blocked.append((b_start, b_end))
+    blocked.sort(key=lambda x: x[0])
+
+    merged_blocked = []
+    for b in blocked:
+        if not merged_blocked:
+            merged_blocked.append(b)
+        else:
+            prev_s, prev_e = merged_blocked[-1]
+            if b[0] <= prev_e:
+                merged_blocked[-1] = (prev_s, max(prev_e, b[1]))
+            else:
+                merged_blocked.append(b)
+
+    uncovered = []
+    curr = 0.0
+    for b_s, b_e in merged_blocked:
+        if b_s > curr:
+            uncovered.append((curr, b_s))
+        curr = max(curr, b_e)
+    if curr < total_duration:
+        uncovered.append((curr, total_duration))
+
+    return [(round(s, 2), round(e, 2)) for s, e in uncovered if (e - s) >= 5.0]
+
+
 def rank_candidates(words: list[dict], template: str, min_duration: int, max_duration: int, video_duration: float, count: int, scene_changes: list[float] | None = None) -> list[dict]:
     config = TEMPLATES[template]
     sentences = sentence_groups(words)
@@ -607,6 +565,100 @@ def rank_candidates(words: list[dict], template: str, min_duration: int, max_dur
             selected.append(candidate)
         if len(selected) >= count:
             break
+
+    # Guaranteed Multi-Clip Generation: If non-overlap filter left us with fewer than count clips
+    if len(selected) < count and video_duration >= 5.0:
+        while len(selected) < count:
+            uncovered_ranges = get_uncovered_ranges(selected, video_duration, buffer=5.0)
+            if not uncovered_ranges:
+                break
+            # Prioritize the largest uncovered gaps
+            uncovered_ranges.sort(key=lambda r: (r[1] - r[0]), reverse=True)
+            r_start, r_end = uncovered_ranges[0]
+            range_dur = r_end - r_start
+            clip_dur = min(max_duration, max(min_duration, min(range_dur, target)))
+            if clip_dur > range_dur:
+                clip_dur = range_dur
+
+            # 1. Try to find an existing speech candidate that fits completely within this uncovered range
+            found_speech = False
+            for cand in candidates:
+                if cand in selected:
+                    continue
+                if cand["start"] >= r_start and cand["end"] <= r_end:
+                    overlaps = any(cand["start"] < item["end"] - 5 and cand["end"] > item["start"] + 5 for item in selected)
+                    if not overlaps:
+                        selected.append(cand)
+                        found_speech = True
+                        break
+
+            if found_speech:
+                continue
+
+            # 2. Try to form a speech candidate from words within this uncovered range
+            range_words = [w for w in words if float(w.get("start", 0)) >= r_start and float(w.get("end", 0)) <= r_end]
+            if len(range_words) >= 4:
+                s_start = float(range_words[0]["start"])
+                s_end = min(r_end, s_start + clip_dur)
+                sub_words = [w for w in range_words if float(w.get("start", 0)) >= s_start and float(w.get("end", 0)) <= s_end]
+                text = " ".join(str(w.get("word", "")).strip() for w in sub_words).strip()
+                if len(text.split()) >= 4:
+                    c_dur = round(max(5.0, s_end - s_start), 1)
+                    selected.append({
+                        "start": round(s_start, 2),
+                        "end": round(s_start + c_dur, 2),
+                        "duration": c_dur,
+                        "text": text,
+                        "score": 52,
+                        "category": config["label"],
+                        "title": make_title(text, template),
+                        "visual_cues": sum(1 for stamp in (scene_changes or []) if s_start < stamp < s_start + c_dur),
+                    })
+                    continue
+
+            # 3. Create visual/pacing fallback candidate using scene_changes data
+            scenes_in_range = [s for s in (scene_changes or []) if r_start <= s <= r_end]
+            if scenes_in_range:
+                # Find the 3-5 second window with the most scene cuts (highest visual dynamism)
+                win_size = min(4.0, max(3.0, range_dur))
+                best_t = r_start
+                max_cuts = -1
+                step = 0.5
+                curr_t = r_start
+                while curr_t + win_size <= r_end:
+                    cuts = sum(1 for s in scenes_in_range if curr_t <= s <= curr_t + win_size)
+                    if cuts > max_cuts:
+                        max_cuts = cuts
+                        best_t = curr_t
+                    curr_t += step
+                # Center the clip window on this peak dynamism zone
+                mid_point = best_t + win_size / 2.0
+                c_start = max(r_start, mid_point - clip_dur / 2.0)
+                c_end = min(r_end, c_start + clip_dur)
+                if c_end == r_end:
+                    c_start = max(r_start, c_end - clip_dur)
+                final_start = round(c_start, 2)
+                final_end = round(c_end, 2)
+            else:
+                # No scene cuts: use fixed temporal slices of the uncovered range (divide evenly)
+                clips_needed = count - len(selected)
+                slice_dur = min(clip_dur, range_dur / max(1, clips_needed))
+                final_start = round(r_start, 2)
+                final_end = round(min(r_end, r_start + max(5.0, slice_dur)), 2)
+
+            fallback_candidate = {
+                "start": final_start,
+                "end": final_end,
+                "duration": round(final_end - final_start, 1),
+                "text": "",
+                "fallback": True,
+                "score": 45,
+                "category": config["label"],
+                "title": f"{config['label']} Highlight",
+                "visual_cues": sum(1 for stamp in (scene_changes or []) if final_start < stamp < final_end),
+            }
+            selected.append(fallback_candidate)
+
     selected.sort(key=lambda item: item["start"])
     return selected
 
@@ -944,11 +996,11 @@ def parse_caption_prompt(prompt: str, candidate_text: str = "") -> dict:
 
     # Font customization
     if any(k in prompt_lower for k in ("serif", "editorial", "georgia")):
-        style["font"] = "DejaVu Serif"
+        style["font"] = "Merriweather"
     elif any(k in prompt_lower for k in ("mono", "code", "technical", "terminal")):
-        style["font"] = "DejaVu Sans Mono"
+        style["font"] = "JetBrainsMono"
     elif "sans" in prompt_lower:
-        style["font"] = "DejaVu Sans"
+        style["font"] = "Montserrat" 
 
     # Accent color override (&H00BBGGRR)
     if "yellow" in prompt_lower or "gold" in prompt_lower:
@@ -986,6 +1038,99 @@ def parse_caption_prompt(prompt: str, candidate_text: str = "") -> dict:
     return style
 
 
+def resolve_caption_spec(
+    caption_style: str | CaptionSpec | dict = "clean",
+    custom_style: dict | CaptionSpec | None = None,
+    uppercase: bool = False,
+    kinetic_pop: bool = True,
+) -> CaptionSpec:
+    if isinstance(caption_style, CaptionSpec):
+        spec = caption_style
+    elif isinstance(caption_style, dict):
+        spec = CAPTION_PRESETS.get("clean") or CAPTION_PRESETS.get("focus") or next(iter(CAPTION_PRESETS.values()))
+        custom_style = caption_style
+    else:
+        key = str(caption_style or "clean")
+        spec = CAPTION_PRESETS.get(key) or CAPTION_PRESETS.get("clean") or CAPTION_PRESETS.get("focus") or next(iter(CAPTION_PRESETS.values()))
+
+    if custom_style:
+        if isinstance(custom_style, CaptionSpec):
+            spec = custom_style
+        elif isinstance(custom_style, dict):
+            overrides: dict = {}
+            if custom_style.get("font"):
+                raw_font = str(custom_style["font"])
+                if any(k in raw_font.lower() for k in ("merriweather", "serif", "georgia")):
+                    overrides["font"] = "Merriweather"
+                elif any(k in raw_font.lower() for k in ("mono", "code", "technical", "terminal", "jetbrains")):
+                    overrides["font"] = "JetBrains Mono"
+                else:
+                    overrides["font"] = "Montserrat"
+            if custom_style.get("headline_font"):
+                overrides["headline_font"] = custom_style["headline_font"]
+            if custom_style.get("base_color"):
+                overrides["primary"] = custom_style["base_color"]
+            if custom_style.get("accent_color"):
+                overrides["accent"] = custom_style["accent_color"]
+            if custom_style.get("outline_color"):
+                overrides["outline"] = custom_style["outline_color"]
+            if custom_style.get("upcoming_color"):
+                overrides["upcoming"] = custom_style["upcoming_color"]
+            if custom_style.get("back_color"):
+                overrides["fill"] = custom_style["back_color"]
+            if custom_style.get("primary"):
+                overrides["primary"] = custom_style["primary"]
+            if custom_style.get("accent"):
+                overrides["accent"] = custom_style["accent"]
+            if custom_style.get("outline"):
+                overrides["outline"] = custom_style["outline"]
+            if custom_style.get("upcoming"):
+                overrides["upcoming"] = custom_style["upcoming"]
+            if custom_style.get("fill"):
+                overrides["fill"] = custom_style["fill"]
+            if custom_style.get("badge_box"):
+                overrides["caption_box"] = "per_word"
+                overrides["active"] = "box"
+            if custom_style.get("pill"):
+                overrides["caption_box"] = "pill"
+            if custom_style.get("letterbox"):
+                overrides["frame"] = "letterbox"
+            if custom_style.get("vertical_side"):
+                overrides["rail"] = "CUTFLOW // MOTION GRAPHICS"
+            if custom_style.get("top_banner"):
+                overrides["headline"] = "banner"
+            if custom_style.get("show_headline") is False:
+                overrides["headline"] = "none"
+            if custom_style.get("glow") is not None:
+                try:
+                    overrides["glow"] = float(custom_style["glow"])
+                except (ValueError, TypeError):
+                    pass
+            if custom_style.get("shadow") is not None:
+                try:
+                    overrides["shadow"] = float(custom_style["shadow"])
+                except (ValueError, TypeError):
+                    pass
+            if custom_style.get("outline_width") is not None:
+                try:
+                    overrides["outline_width"] = float(custom_style["outline_width"])
+                except (ValueError, TypeError):
+                    pass
+            if "uppercase" in custom_style and custom_style["uppercase"] is not None:
+                overrides["uppercase"] = bool(custom_style["uppercase"])
+            if "kinetic_pop" in custom_style and custom_style["kinetic_pop"] is not None:
+                overrides["active_pop"] = bool(custom_style["kinetic_pop"])
+            if overrides:
+                spec = spec.with_overrides(**overrides)
+
+    if uppercase:
+        spec = spec.with_overrides(uppercase=True)
+    if not kinetic_pop:
+        spec = spec.with_overrides(active_pop=False)
+
+    return spec
+
+
 def write_ass(
     path: Path,
     words: list[dict],
@@ -1001,178 +1146,26 @@ def write_ass(
     candidate_text: str = "",
     template: str = "podcast",
 ) -> None:
-    dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
-    width, height = dimensions[aspect]
-    style = custom_style or CAPTION_STYLES.get(caption_style, CAPTION_STYLES["clean"])
-    base_size, max_chars, margin_v = {
-        "9:16": (68, 20, 280),
-        "1:1": (56, 24, 110),
-        "16:9": (54, 34, 95),
-    }[aspect]
-    
-    is_badge_box = style.get("badge_box", False)
-    border_style = 3 if style.get("pill") or is_badge_box else 1
-    outline = style.get("outline", 4)
-    shadow = style.get("shadow", 2)
-    back_color = style.get("back_color") or ("&H00FFFFFF" if is_badge_box else ("&H7A12141A" if style.get("pill") else "&H6A101010"))
-
-    title_size = {"9:16": 42, "1:1": 36, "16:9": 34}[aspect]
-    title_margin_v = {"9:16": 150, "1:1": 70, "16:9": 60}[aspect]
-    title_font = style.get("headline_font") or ("DejaVu Serif" if style.get("font") == "DejaVu Serif" else "DejaVu Sans")
-
-    header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: {width}
-PlayResY: {height}
-WrapStyle: 2
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cutflow,{style["font"]},{base_size},{style["base_color"]},&H000000FF,{style["outline_color"]},{back_color},-1,0,{border_style},{outline},{shadow},2,74,74,{margin_v},1
-Style: CutflowTitle,{title_font},{title_size},&H00FFFFFF,&H000000FF,&H00111111,&H6A101010,-1,0,1,4,2,8,60,60,{title_margin_v},1
-Style: CutflowSide,DejaVu Sans Mono,28,&H00D5FF5F,&H000000FF,&H00000000,&H00000000,-1,0,1,3,1,7,40,40,960,1
-Style: CutflowBanner,DejaVu Sans,{title_size - 4},&H00141610,&H000000FF,&H005FFFD5,&H005FFFD5,-1,0,3,6,0,8,60,60,{title_margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    visible = [w for w in words if float(w["end"]) > start and float(w["start"]) < end]
-    groups = _caption_groups(visible, max_chars=max_chars, max_words=3)
-    lines = []
-    style_karaoke = style.get("karaoke", False)
-    force_upper = uppercase or style.get("uppercase", False)
-    use_pop = kinetic_pop and style.get("kinetic_pop", True)
-    accent_color = style["accent_color"]
-    base_color = style["base_color"]
-    upcoming_color = style.get("upcoming_color", "&H00999999")
-
-    # Zone 1: Upper-third hook headline overlay (Only during first 3.5s hook phase, not entire video!)
-    if auto_headline and style.get("show_headline", False) and visible:
-        headline = extract_headline(candidate_text or visible, template)
-        headline_esc = _ass_escape(headline)
-        clip_duration = max(0.5, end - start)
-        hook_duration = min(3.8, max(1.5, clip_duration))
-        if style.get("top_banner"):
-            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowBanner,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\fsp2}} {headline_esc} ")
-        elif style.get("badge_box"):
-            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowTitle,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\bord8\\3c&H00FFFFFF\\c&H00000000\\fsp2}} {headline_esc} ")
-        else:
-            lines.append(f"Dialogue: 1,0:00:00.00,{ass_time(hook_duration)},CutflowTitle,,0,0,0,,{{\\fad(200,400)\\an8\\pos({width // 2},{title_margin_v})\\fsp3\\c&H00FFFFFF}}{headline_esc}")
-
-    # Zone 2: Framing & technical side rail (Stack style during hook)
-    if style.get("vertical_side"):
-        clip_duration = max(0.5, end - start)
-        hook_duration = min(4.0, max(1.5, clip_duration))
-        lines.append(f"Dialogue: 0,0:00:00.00,{ass_time(hook_duration)},CutflowSide,,0,0,0,,{{\\fad(200,400)\\an4\\pos(65,960)\\frz90\\alpha&H40&}}CUTFLOW // MOTION GRAPHICS")
-
-    is_italic = style.get("italic", False) or style.get("font") == "DejaVu Serif"
-    is_bracket = style.get("bracket_pop", False) or (caption_style == "stack")
-
-    # Zone 3: Kinetic Dialogue Badges
-    for group in groups:
-        line_start = max(0.0, float(group[0]["start"]) - start)
-        line_end = min(end - start, float(group[-1]["end"]) - start + 0.14)
-        if line_end <= line_start:
-            continue
-
-        tokens = []
-        for w in group:
-            raw_w = str(w.get("word", "")).strip()
-            clean_token = _ass_escape(raw_w)
-            norm = raw_w.lower().strip(".,!?;:\"'")
-            if auto_emoji and norm in EMOJI_MAP:
-                clean_token = f"{clean_token} {EMOJI_MAP[norm]}"
-            if force_upper:
-                clean_token = clean_token.upper()
-            w_s = max(0.0, float(w.get("start", start)) - start)
-            w_e = min(end - start, float(w.get("end", end)) - start)
-            tokens.append({"word": clean_token, "start": w_s, "end": w_e})
-
-        if not tokens:
-            continue
-
-        raw_caption = " ".join(t["word"] for t in tokens)
-
-        if style_karaoke and len(tokens) > 1:
-            for i, active_token in enumerate(tokens):
-                slice_start = max(line_start, active_token["start"])
-                slice_end = min(line_end, active_token["end"])
-                if i + 1 < len(tokens):
-                    slice_end = max(slice_end, min(line_end, tokens[i+1]["start"]))
-                if slice_end <= slice_start:
-                    slice_end = slice_start + 0.15
-
-                formatted_words = []
-                for j, tok in enumerate(tokens):
-                    it_prefix = r"{\i1}" if is_italic else ""
-                    it_suffix = r"{\i0}" if is_italic else ""
-                    if j < i:
-                        formatted_words.append(f"{it_prefix}{{\\c{base_color}}}{tok['word']}{it_suffix}")
-                    elif j == i:
-                        if is_badge_box:
-                            pop_tag = r"\fscx112\fscy112" if use_pop else ""
-                            formatted_words.append(f"{{\\bord10\\3c&H00FFFFFF\\c&H00000000{pop_tag}}}{tok['word']}{{\\rCutflow}}")
-                        elif is_bracket:
-                            pop_tag = r"\fscx112\fscy112" if use_pop else ""
-                            formatted_words.append(f"{{\\bord4\\3c&H0000FFFF\\c&H00000000{pop_tag}}}[{tok['word']}]{{\\rCutflow}}")
-                        elif is_italic:
-                            pop_tag = r"\fscx108\fscy108" if use_pop else ""
-                            formatted_words.append(f"{{\\i1\\c{accent_color}\\3c&H00111111\\bord4{pop_tag}}}{tok['word']}{{\\rCutflow}}")
-                        elif caption_style == "evo":
-                            pop_tag = r"\fscx114\fscy114" if use_pop else ""
-                            formatted_words.append(f"{{\\bord6\\3c&H8A221832\\c{accent_color}{pop_tag}\\blur1.2}}{tok['word']}{{\\rCutflow}}")
-                        elif use_pop:
-                            formatted_words.append(f"{{\\fscx114\\fscy114\\c{accent_color}}}{tok['word']}{{\\rCutflow}}")
-                        else:
-                            formatted_words.append(f"{{\\c{accent_color}}}{tok['word']}{{\\rCutflow}}")
-                    else:
-                        formatted_words.append(f"{it_prefix}{{\\c{upcoming_color}}}{tok['word']}{it_suffix}")
-
-                caption = " ".join(formatted_words)
-                if len(raw_caption) > max_chars:
-                    size = max(38, int(base_size * max_chars / len(raw_caption)))
-                    caption = f"{{\\fs{size}}}" + caption + "{\\rCutflow}"
-                if style.get("glow"):
-                    blur_val = 1.2 * style["glow"]
-                    caption = f"{{\\blur{blur_val:.1f}}}{caption}{{\\blur0}}"
-                lines.append(f"Dialogue: 0,{ass_time(slice_start)},{ass_time(slice_end)},Cutflow,,0,0,0,,{caption}")
-        else:
-            caption = raw_caption
-            it_prefix = r"{\i1}" if is_italic else ""
-            it_suffix = r"{\i0}" if is_italic else ""
-            if style_karaoke and len(tokens) == 1:
-                if is_badge_box:
-                    pop_tag = r"\fscx112\fscy112" if use_pop else ""
-                    caption = f"{{\\bord10\\3c&H00FFFFFF\\c&H00000000{pop_tag}}}{caption}{{\\rCutflow}}"
-                elif is_bracket:
-                    pop_tag = r"\fscx112\fscy112" if use_pop else ""
-                    caption = f"{{\\bord4\\3c&H0000FFFF\\c&H00000000{pop_tag}}}[{caption}]{{\\rCutflow}}"
-                elif is_italic:
-                    pop_tag = r"\fscx108\fscy108" if use_pop else ""
-                    caption = f"{{\\i1\\c{accent_color}\\3c&H00111111\\bord4{pop_tag}}}{caption}{{\\rCutflow}}"
-                elif caption_style == "evo":
-                    pop_tag = r"\fscx114\fscy114" if use_pop else ""
-                    caption = f"{{\\bord6\\3c&H8A221832\\c{accent_color}{pop_tag}\\blur1.2}}{caption}{{\\rCutflow}}"
-                elif use_pop:
-                    caption = f"{{\\fscx114\\fscy114\\c{accent_color}}}{caption}{{\\rCutflow}}"
-                else:
-                    caption = f"{{\\c{accent_color}}}{caption}{{\\rCutflow}}"
-            elif len(tokens) > 1 and style.get("accent_color"):
-                last = tokens[-1]["word"]
-                caption = " ".join(f"{it_prefix}{t['word']}{it_suffix}" for t in tokens[:-1]) + f" {it_prefix}{{\\c{accent_color}}}{last}{{\\c{base_color}}}{it_suffix}"
-            elif is_italic:
-                caption = f"{it_prefix}{caption}{it_suffix}"
-
-            if len(raw_caption) > max_chars:
-                size = max(38, int(base_size * max_chars / len(raw_caption)))
-                caption = f"{{\\fs{size}}}" + caption + "{\\rCutflow}"
-            if style.get("glow"):
-                blur_val = 1.2 * style["glow"]
-                caption = f"{{\\blur{blur_val:.1f}}}{caption}{{\\blur0}}"
-            lines.append(f"Dialogue: 0,{ass_time(line_start)},{ass_time(line_end)},Cutflow,,0,0,0,,{caption}")
-
-    path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
+    spec = resolve_caption_spec(
+        caption_style,
+        custom_style=custom_style,
+        uppercase=uppercase,
+        kinetic_pop=kinetic_pop,
+    )
+    ass_content = ass_engine.compile_ass(
+        spec,
+        words=words,
+        start=start,
+        end=end,
+        aspect=aspect,
+        auto_emoji=auto_emoji,
+        emoji_map=EMOJI_MAP,
+        auto_headline=auto_headline,
+        candidate_text=candidate_text,
+        template=template,
+        extract_headline=extract_headline,
+    )
+    path.write_text(ass_content, encoding="utf-8")
 
 
 def write_srt(path: Path, words: list[dict], start: float, end: float, auto_emoji: bool = True, uppercase: bool = False) -> None:
@@ -1205,10 +1198,12 @@ def write_srt(path: Path, words: list[dict], start: float, end: float, auto_emoj
     path.write_text("\n".join(lines) if lines else "1\n00:00:00,000 --> 00:00:01,000\n...\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None, fit_mode: str = "fit") -> None:
+def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None, fit_mode: str = "blur") -> None:
     dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
     width, height = dimensions[aspect]
     ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
+    fonts_dir = FONTS_DIR.resolve().as_posix().replace(":", r"\:")
+    ass_filter = f"ass='{ass_path}':fontsdir='{fonts_dir}'"
     profile = STYLE_PROFILES.get(template, STYLE_PROFILES["podcast"])
     eq_filter = profile.get("eq", "contrast=1.04:saturation=1.06:brightness=0.005")
     unsharp_filter = profile.get("unsharp", "5:5:0.25:3:3:0.0")
@@ -1225,35 +1220,59 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
     target_ratio = width / height
     is_mismatch = abs(source_ratio - target_ratio) > 0.18
 
-    # Smart Captions.ai Canvas Fill with Ambient Blur Background:
-    # Keeps 100% of the video visible without aggressive zoom/crop
-    if is_mismatch and aspect == "9:16" and fit_mode != "crop":
-        vf = (
+    # Canvas Framing & Background Mode:
+    # 1. letterbox: clean cinematic black bars (100% video visible, zero blur, zero zoom)
+    # 2. crop: smart punch-in fill (fills canvas completely, no bars, no blur)
+    # 3. blur: ambient softened background (keeps 100% video visible with blur fill)
+    use_filter_complex = False
+    if is_mismatch and fit_mode == "letterbox":
+        filter_graph = (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"eq={eq_filter},unsharp={unsharp_filter},{ass_filter}"
+        )
+    elif is_mismatch and fit_mode == "crop":
+        filter_graph = (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},{ass_filter}"
+        )
+    elif is_mismatch and aspect in {"9:16", "1:1"} and fit_mode != "crop":
+        blur_radius = "28:5" if aspect == "9:16" else "24:4"
+        dim_amount = "-0.12" if aspect == "9:16" else "-0.10"
+        filter_graph = (
             f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},boxblur=28:5,eq=brightness=-0.12:contrast=1.06[bg];"
+            f"crop={width}:{height},boxblur={blur_radius},eq=brightness={dim_amount}:contrast=1.06[bg];"
             f"[0:v]scale={width}:-2:flags=lanczos,eq={eq_filter},unsharp={unsharp_filter}[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp];"
-            f"[comp]ass='{ass_path}'"
+            f"[comp]{ass_filter}[vout]"
         )
-    elif is_mismatch and aspect == "1:1" and fit_mode != "crop":
-        vf = (
-            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},boxblur=24:4,eq=brightness=-0.10:contrast=1.05[bg];"
-            f"[0:v]scale={width}:-2:flags=lanczos,eq={eq_filter},unsharp={unsharp_filter}[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp];"
-            f"[comp]ass='{ass_path}'"
-        )
+        use_filter_complex = True
     else:
-        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},ass='{ass_path}'"
+        filter_graph = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},{ass_filter}"
 
     duration = max(1, end - start)
-    command = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
-        "-vf", vf, "-c:v", "libx264", "-preset", os.getenv("FFMPEG_PRESET", "veryfast"),
-        "-crf", "21", "-c:a", "aac", "-b:a", "160k",
-        "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
-    ]
+    if use_filter_complex:
+        # Complex filtergraph: two [0:v] split paths merged via overlay
+        # Must use -filter_complex + explicit -map to avoid 'multiple inputs' error
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
+            "-filter_complex", filter_graph,
+            "-map", "[vout]", "-map", "0:a?",
+            "-c:v", "libx264", "-preset", os.getenv("FFMPEG_PRESET", "veryfast"),
+            "-crf", "21", "-c:a", "aac", "-b:a", "160k",
+            "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
+        ]
+    else:
+        # Simple filtergraph: single input, single output chain — -vf is correct
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
+            "-vf", filter_graph,
+            "-c:v", "libx264", "-preset", os.getenv("FFMPEG_PRESET", "veryfast"),
+            "-crf", "21", "-c:a", "aac", "-b:a", "160k",
+            "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(output),
+        ]
     run_command(command, timeout=1200, job_id=job_id)
 
 
@@ -1324,8 +1343,8 @@ def process_job(job_id: str) -> None:
         selected_style = job["template"]
         selected_label = job["template_label"]
 
-        # Automatically adopt the detected style if confident or if template was auto
-        if selected_style == "auto" or (selected_style != detected_style and style_info["confidence"] >= 0.60):
+        # Automatically adopt the detected style ONLY if user chose "auto"
+        if selected_style == "auto":
             job["template"] = detected_style
             job["template_label"] = detected_label
             style_match = {
@@ -1385,6 +1404,7 @@ def process_job(job_id: str) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         completed = []
         profile = STYLE_PROFILES.get(job["template"], STYLE_PROFILES["podcast"])
+        fit_mode = job.get("fit_mode", "blur")
         for index, candidate in enumerate(candidates, start=1):
             check_cancelled()
             update_job(job_id, progress=35 + int((index - 1) / len(candidates) * 60), stage=f"Rendering clip {index} of {len(candidates)}", message=f"Creating {job['aspect_ratio']} video with {profile['label']} finishing.")
@@ -1399,23 +1419,38 @@ def process_job(job_id: str) -> None:
             custom_style = None
             if caption_mode == "prompt" and caption_prompt:
                 custom_style = parse_caption_prompt(caption_prompt, candidate.get("text", ""))
-            elif caption_style_to_use == "clean" and profile.get("default_caption"):
-                caption_style_to_use = profile["default_caption"]
             auto_emoji = job.get("auto_emoji", False)
             uppercase = job.get("uppercase", False)
-            write_ass(
-                ass_path, words, candidate["start"], candidate["end"],
-                job["aspect_ratio"], caption_style_to_use,
-                auto_emoji=auto_emoji, uppercase=uppercase,
-                kinetic_pop=job.get("kinetic_pop", True),
+
+            # Fallback candidates have no words: render Zone 1 topic card only (no dialogue subtitles)
+            is_fallback = bool(candidate.get("fallback"))
+            words_for_ass = [] if is_fallback else words
+            candidate_text_for_ass = candidate.get("title", "") if is_fallback else candidate.get("text", "")
+            auto_headline_for_ass = True if is_fallback else auto_headline
+
+            spec = resolve_caption_spec(
+                caption_style_to_use,
                 custom_style=custom_style,
-                auto_headline=auto_headline,
-                candidate_text=candidate.get("text", ""),
-                template=job["template"],
+                uppercase=uppercase,
+                kinetic_pop=job.get("kinetic_pop", True),
             )
-            write_srt(srt_path, words, candidate["start"], candidate["end"], auto_emoji=auto_emoji, uppercase=uppercase)
+            ass_content = ass_engine.compile_ass(
+                spec,
+                words=words_for_ass,
+                start=candidate["start"],
+                end=candidate["end"],
+                aspect=job["aspect_ratio"],
+                auto_emoji=auto_emoji,
+                emoji_map=EMOJI_MAP,
+                auto_headline=auto_headline_for_ass,
+                candidate_text=candidate_text_for_ass,
+                template=job["template"],
+                extract_headline=extract_headline,
+            )
+            ass_path.write_text(ass_content, encoding="utf-8")
+            write_srt(srt_path, words_for_ass, candidate["start"], candidate["end"], auto_emoji=auto_emoji, uppercase=uppercase)
             check_cancelled()
-            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id)
+            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id, fit_mode=fit_mode)
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
@@ -1461,6 +1496,7 @@ def create_job(
     auto_emoji: bool = False,
     uppercase: bool = False,
     kinetic_pop: bool = True,
+    fit_mode: str = "blur",
     job_id: str | None = None,
 ) -> dict:
     if template not in TEMPLATES and template != "auto":
@@ -1469,6 +1505,8 @@ def create_job(
         raise HTTPException(400, "Choose a valid aspect ratio.")
     if caption_mode == "auto" and caption_style not in CAPTION_STYLES:
         raise HTTPException(400, "Choose a valid caption style.")
+    if fit_mode not in {"blur", "letterbox", "crop"}:
+        fit_mode = "blur"
     if not 1 <= clip_count <= 8:
         raise HTTPException(400, "Choose between 1 and 8 clips.")
     if not (10 <= min_duration < max_duration <= 90):
@@ -1483,7 +1521,7 @@ def create_job(
         "caption_style": caption_style, "caption_mode": caption_mode,
         "caption_prompt": caption_prompt.strip()[:400], "auto_headline": bool(auto_headline),
         "auto_emoji": bool(auto_emoji), "uppercase": bool(uppercase),
-        "kinetic_pop": bool(kinetic_pop),
+        "kinetic_pop": bool(kinetic_pop), "fit_mode": fit_mode,
         "edit_prompt": edit_prompt.strip()[:1200], "source_path": source_path, "source_url": source_url, "clips": [],
         "created_at": time.time(), "updated_at": time.time(),
     }
@@ -1533,6 +1571,7 @@ async def upload_job(
     auto_emoji: bool = Form(False),
     uppercase: bool = Form(False),
     kinetic_pop: bool = Form(True),
+    fit_mode: str = Form("blur"),
 ):
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -1563,7 +1602,7 @@ async def upload_job(
             caption_style=caption_style, caption_mode=caption_mode,
             caption_prompt=caption_prompt, auto_headline=auto_headline,
             auto_emoji=auto_emoji, uppercase=uppercase, kinetic_pop=kinetic_pop,
-            job_id=job_id,
+            fit_mode=fit_mode, job_id=job_id,
         )
     except Exception:
         shutil.rmtree(destination_dir, ignore_errors=True)
@@ -1579,6 +1618,7 @@ def url_job(payload: URLJob):
         caption_style=payload.caption_style, caption_mode=payload.caption_mode,
         caption_prompt=payload.caption_prompt, auto_headline=payload.auto_headline,
         auto_emoji=payload.auto_emoji, uppercase=payload.uppercase, kinetic_pop=payload.kinetic_pop,
+        fit_mode=payload.fit_mode,
     )
 
 
@@ -1628,15 +1668,26 @@ def download_clip(job_id: str, filename: str, resolution: str | None = Query(def
                         custom_style = None
                         if job.get("caption_mode") == "prompt" and job.get("caption_prompt"):
                             custom_style = parse_caption_prompt(job["caption_prompt"], clip_data.get("text", ""))
-                        write_ass(
-                            path, words, clip_data["start"], clip_data["end"],
-                            job.get("aspect_ratio", "9:16"), job.get("caption_style", "focus"),
-                            auto_emoji=job.get("auto_emoji", False), uppercase=job.get("uppercase", False),
-                            kinetic_pop=job.get("kinetic_pop", True), custom_style=custom_style,
+                        spec = resolve_caption_spec(
+                            job.get("caption_style", "focus"),
+                            custom_style=custom_style,
+                            uppercase=job.get("uppercase", False),
+                            kinetic_pop=job.get("kinetic_pop", True),
+                        )
+                        ass_content = ass_engine.compile_ass(
+                            spec,
+                            words=words,
+                            start=clip_data["start"],
+                            end=clip_data["end"],
+                            aspect=job.get("aspect_ratio", "9:16"),
+                            auto_emoji=job.get("auto_emoji", False),
+                            emoji_map=EMOJI_MAP,
                             auto_headline=job.get("auto_headline", True),
                             candidate_text=clip_data.get("text", ""),
                             template=job.get("template", "podcast"),
+                            extract_headline=extract_headline,
                         )
+                        path.write_text(ass_content, encoding="utf-8")
                         return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
         raise HTTPException(404, "Clip is not ready or does not exist.")
     if filename.endswith(".srt"):
@@ -1727,6 +1778,43 @@ def retry_job(job_id: str):
         persist_job(job)
     POOL.submit(process_job, job_id)
     return public_job(job)
+
+
+@app.delete("/api/jobs")
+def delete_all_jobs():
+    with LOCK:
+        job_ids = list(JOBS.keys())
+        all_ids = set(job_ids) | set(ACTIVE_PROCESSES.keys())
+        for jid in all_ids:
+            CANCELLED_JOBS.add(jid)
+        for proc in list(ACTIVE_PROCESSES.values()):
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        ACTIVE_PROCESSES.clear()
+        JOBS.clear()
+        with db_connection() as connection:
+            cursor = connection.execute("DELETE FROM jobs")
+            deleted_count = cursor.rowcount
+            if deleted_count < 0:
+                deleted_count = len(job_ids)
+            elif deleted_count == 0 and job_ids:
+                deleted_count = len(job_ids)
+            deleted_count = max(0, deleted_count)
+
+    for directory in (UPLOADS, OUTPUTS):
+        if directory.exists():
+            for item in directory.iterdir():
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        item.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 @app.delete("/api/jobs/{job_id}")

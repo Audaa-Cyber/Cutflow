@@ -1,0 +1,7 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e6]:
+      - heading "Sorry, but we can’t find that page. Please try another page." [level=4] [ref=e11]
+      - link "Go to homepage" [ref=e12] [cursor=pointer]:
+        - /url: /
+  - button "Privacy choices" [ref=e16] [cursor=pointer]

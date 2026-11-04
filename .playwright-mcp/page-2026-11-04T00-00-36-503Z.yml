@@ -1,0 +1,26 @@
+- generic [ref=f5e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f5e6]:
+    - generic [ref=f5e8]:
+      - generic [ref=f5e9]:
+        - generic:
+          - img "Mirage Logo Large"
+        - heading "Welcome to Captions" [level=1] [ref=f5e10]
+      - generic [ref=f5e11]:
+        - generic [ref=f5e12]:
+          - generic [ref=f5e13]: Email
+          - textbox "Email" [active] [ref=f5e14]:
+            - /placeholder: Your email address
+          - button "Continue with email" [disabled] [ref=f5e16]
+        - generic [ref=f5e17]: OR
+        - generic [ref=f5e21]:
+          - button "Continue with Google" [ref=f5e23] [cursor=pointer]
+          - button "Continue with Microsoft" [ref=f5e25] [cursor=pointer]
+          - button "Continue with Apple" [ref=f5e27] [cursor=pointer]
+          - button "Continue another way" [ref=f5e29] [cursor=pointer]
+    - paragraph [ref=f5e31]:
+      - link "Terms of Service" [ref=f5e32] [cursor=pointer]:
+        - /url: https://mirage.app/legal/captions-web-terms
+      - text: and
+      - link "Privacy Policy" [ref=f5e33] [cursor=pointer]:
+        - /url: https://mirage.app/legal/privacy-policy

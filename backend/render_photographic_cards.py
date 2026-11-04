@@ -7,39 +7,19 @@ out_dir = Path("frontend/assets/captions")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 # Find generated portrait files
-images = {
-    "focus": list(brain_dir.glob("focus_creator_*.jpg"))[0],
-    "linen": list(brain_dir.glob("linen_creator_*.jpg"))[0],
-    "evo": list(brain_dir.glob("evo_creator_*.jpg"))[0],
-    "align": list(brain_dir.glob("align_creator_*.jpg"))[0],
-    "lift": list(brain_dir.glob("lift_creator_*.jpg"))[0],
-    "stack": list(brain_dir.glob("stack_creator_*.jpg"))[0],
-    "prime": list(brain_dir.glob("prime_creator_*.jpg"))[0],
-    "impact": list(brain_dir.glob("impact_creator_*.jpg"))[0],
-    "pop": list(brain_dir.glob("pop_creator_*.jpg"))[0],
-}
+# Find generated unique portrait files for all 18 presets
+presets_keys = [
+    "focus", "linen", "evo", "lift", "stack", "align",
+    "prime", "impact", "paper", "elevate", "pop", "y2k", "chalk",
+    "clean", "pulse", "glow", "hormozi", "karaoke",
+]
 
-# Map remaining presets to matching portraits
-image_map = {
-    "focus": images["focus"],
-    "linen": images["linen"],
-    "evo": images["evo"],
-    "lift": images["lift"],
-    "stack": images["stack"],
-    "align": images["align"],
-    "prime": images["prime"],
-    "impact": images["impact"],
-    "paper": images["linen"],
-    "elevate": images["align"],
-    "pop": images["pop"],
-    "y2k": images["evo"],
-    "chalk": images["prime"],
-    "clean": images["focus"],
-    "pulse": images["pop"],
-    "glow": images["evo"],
-    "hormozi": images["focus"],
-    "karaoke": images["prime"],
-}
+image_map = {}
+for key in presets_keys:
+    matches = list(brain_dir.glob(f"{key}_creator_*.jpg"))
+    if not matches:
+        raise FileNotFoundError(f"Missing portrait for preset '{key}'")
+    image_map[key] = matches[0]
 
 # Typography configs for each preset
 presets_config = {
@@ -242,8 +222,7 @@ for key, cfg in presets_config.items():
         f_main = get_font(34, bold=True)
         main_t = "FOLLOWERS"
         draw.text(((TARGET_W - draw.textlength(main_t, f_main))//2, 472), main_t, font=f_main, fill=(255, 255, 255, 255))
-        f_sub = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Focus", f_sub))//2, 510), "Focus", font=f_sub, fill=(255, 255, 255, 220))
+        # (style name not drawn here – HTML card label handles it to avoid doubling)
         
     elif key == "linen":
         f_top = get_font(38, bold=True, serif=True)
@@ -257,8 +236,7 @@ for key, cfg in presets_config.items():
         f_bot = get_font(18, bold=False, serif=True)
         t_bot = "dress like you mean it"
         draw.text(((TARGET_W - draw.textlength(t_bot, f_bot))//2, 480), t_bot, font=f_bot, fill=(255, 255, 255, 240))
-        f_name = get_font(18, bold=True, serif=True)
-        draw.text(((TARGET_W - draw.textlength("Linen", f_name))//2, 514), "Linen", font=f_name, fill=(245, 215, 153, 255))
+        # (style name handled by HTML label)
 
     elif key == "evo":
         # Frosted glass pill with cyan
@@ -270,8 +248,7 @@ for key, cfg in presets_config.items():
         f_act = get_font(24, bold=True)
         t_act = "JUST SITTING"
         draw.text(((TARGET_W - draw.textlength(t_act, f_act))//2, 482), t_act, font=f_act, fill=(0, 247, 255, 255))
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Evo", f_name))//2, 544), "Evo", font=f_name, fill=(255, 255, 255, 230))
+        # (style name handled by HTML label)
 
     elif key == "lift":
         # Emerald curved banner
@@ -286,8 +263,7 @@ for key, cfg in presets_config.items():
         draw.text((78, 480), "team", font=f_sub, fill=(10, 30, 20, 255))
         draw.text((134, 480), "only see", font=f_sub, fill=(255, 255, 255, 240))
         draw.text((30, 508), "20% of the data", font=f_sub, fill=(255, 255, 255, 220))
-        f_name = get_font(20, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Lift", f_name))//2, 544), "Lift", font=f_name, fill=(52, 238, 182, 255))
+        # (style name handled by HTML label)
 
     elif key == "stack":
         # Technical side text
@@ -302,8 +278,7 @@ for key, cfg in presets_config.items():
         f_sub = get_font(16, bold=False)
         t_sub = "Or a solution?"
         draw.text(((TARGET_W - draw.textlength(t_sub, f_sub))//2, 518), t_sub, font=f_sub, fill=(255, 120, 100, 240))
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Stack", f_name))//2, 546), "Stack", font=f_name, fill=(255, 255, 255, 230))
+        # (style name handled by HTML label)
 
     elif key == "align":
         # Polaroid letterbox frame
@@ -316,8 +291,7 @@ for key, cfg in presets_config.items():
         f_dia = get_font(13, bold=True)
         t_dia = "IF THERE'S ONLY"
         draw.text(((TARGET_W - draw.textlength(t_dia, f_dia))//2, 492), t_dia, font=f_dia, fill=(0, 0, 0, 255))
-        f_name = get_font(20, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Align", f_name))//2, 544), "Align", font=f_name, fill=(255, 255, 255, 240))
+        # (style name handled by HTML label)
 
     elif key == "prime":
         f_head = get_font(20, bold=True)
@@ -329,8 +303,7 @@ for key, cfg in presets_config.items():
         # Shadow
         draw.text(((TARGET_W - draw.textlength(t_act, f_act))//2 + 2, 492), t_act, font=f_act, fill=(0, 0, 0, 255))
         draw.text(((TARGET_W - draw.textlength(t_act, f_act))//2, 490), t_act, font=f_act, fill=(255, 234, 0, 255))
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Prime", f_name))//2, 544), "Prime", font=f_name, fill=(255, 255, 255, 230))
+        # (style name handled by HTML label)
 
     elif key == "impact":
         f_main = get_font(34, bold=True)
@@ -340,8 +313,7 @@ for key, cfg in presets_config.items():
         f_sub = get_font(14, bold=False)
         t_sub = "Solo travel in a remote island"
         draw.text(((TARGET_W - draw.textlength(t_sub, f_sub))//2, 514), t_sub, font=f_sub, fill=(240, 240, 240, 240))
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Impact II", f_name))//2, 546), "Impact II", font=f_name, fill=(255, 255, 255, 230))
+        # (style name handled by HTML label)
 
     elif key == "pop":
         f_top = get_font(32, bold=True)
@@ -356,8 +328,7 @@ for key, cfg in presets_config.items():
         draw.rounded_rectangle([134, 484, 180, 514], radius=4, fill=(255, 234, 0, 255))
         draw.text((138, 488), "your", font=f_sp, fill=(0, 0, 0, 255))
         draw.text((188, 488), "own music", font=f_sp, fill=(255, 255, 255, 255))
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength("Pop", f_name))//2, 546), "Pop", font=f_name, fill=(255, 56, 205, 255))
+        # (style name handled by HTML label)
 
     else:
         # Standard clean typography overlay for remaining presets
@@ -375,8 +346,7 @@ for key, cfg in presets_config.items():
             draw.text(((TARGET_W - draw.textlength(act, f_act))//2 + 2, 488), act, font=f_act, fill=(0, 0, 0, 255))
             draw.text(((TARGET_W - draw.textlength(act, f_act))//2, 486), act, font=f_act, fill=(255, 255, 255, 255))
             
-        f_name = get_font(18, bold=True)
-        draw.text(((TARGET_W - draw.textlength(cfg["title"], f_name))//2, 546), cfg["title"], font=f_name, fill=(255, 255, 255, 230))
+        # (style name handled by HTML label)
 
     # Composite & save as crisp, lightweight WebP
     final = Image.alpha_composite(img, overlay).convert("RGB")

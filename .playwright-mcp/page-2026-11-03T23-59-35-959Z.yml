@@ -1,0 +1,430 @@
+- generic [active] [ref=f3e1]:
+  - banner [ref=f3e2]:
+    - link "Homepage" [ref=f3e3] [cursor=pointer]:
+      - /url: /
+    - navigation "Main" [ref=f3e10]:
+      - list [ref=f3e12]:
+        - listitem [ref=f3e13]:
+          - button "Features" [ref=f3e14] [cursor=pointer]
+        - listitem [ref=f3e17]:
+          - link "Solutions" [ref=f3e18] [cursor=pointer]:
+            - /url: /solutions
+        - listitem [ref=f3e19]:
+          - link "Use cases" [ref=f3e20] [cursor=pointer]:
+            - /url: /use-cases
+        - listitem [ref=f3e21]:
+          - link "Pricing" [ref=f3e22] [cursor=pointer]:
+            - /url: /pricing
+        - listitem [ref=f3e23]:
+          - button "Resources" [ref=f3e24] [cursor=pointer]
+    - link "Sign up" [ref=f3e27] [cursor=pointer]:
+      - /url: /signup
+  - main [ref=f3e28]:
+    - generic [ref=f3e32]:
+      - generic [ref=f3e33]:
+        - heading "Add accurate, stylized video captions in minutes." [level=1] [ref=f3e34]
+        - paragraph [ref=f3e36]: Our AI caption generator transcribes videos to add precise auto-captions. It automatically creates and syncs captions you can use on any platform. Choose from 100+ languages and 100+ caption styles.
+        - generic [ref=f3e37]:
+          - link "Sign up" [ref=f3e38] [cursor=pointer]:
+            - /url: /signup
+          - link "Try AI Captions" [ref=f3e41] [cursor=pointer]:
+            - /url: "#try-it-now"
+        - paragraph [ref=f3e45]:
+          - generic [ref=f3e46]: 4.7 on the App Store
+          - generic [aria-hidden] [ref=f3e49]: ·
+          - generic [ref=f3e50]: 20M creators
+      - img "Young man wearing headphones and a brown corduroy shirt with a stylized text caption overlay reading 'It's about balance not just sacrifice,' showing how Captions adds accurate, styled captions to video." [ref=f3e52]
+    - generic [ref=f3e53]:
+      - heading "The best AI caption generator for talking videos" [level=2] [ref=f3e54]
+      - generic [ref=f3e55]:
+        - generic [ref=f3e58]:
+          - heading "Accurate transcription" [level=4] [ref=f3e59]
+          - paragraph [ref=f3e61]: Captions detects audio with unparalleled accuracy, so words and pacing always match.
+        - generic [ref=f3e64]:
+          - heading "Multilingual support" [level=4] [ref=f3e65]
+          - paragraph [ref=f3e67]: Reuse the same video and add translated subtitles in more than 100 languages.
+        - generic [ref=f3e70]:
+          - heading "Optimized performance" [level=4] [ref=f3e71]
+          - paragraph [ref=f3e73]: Captions are timed, styled, and formatted for social performance.
+        - generic [ref=f3e76]:
+          - heading "Stylized templates" [level=4] [ref=f3e77]
+          - paragraph [ref=f3e79]: Choose from popular caption styles or enable auto emojis for extra emphasis.
+        - generic [ref=f3e82]:
+          - heading "Animations and effects" [level=4] [ref=f3e83]
+          - paragraph [ref=f3e85]:
+            - text: Add animations,
+            - link "transitions" [ref=f3e86] [cursor=pointer]:
+              - /url: /tools/transition-video-editor
+            - text: ", and effects for extra impact."
+        - generic [ref=f3e89]:
+          - heading "Brand customization" [level=4] [ref=f3e90]
+          - paragraph [ref=f3e92]: Adjust fonts, colors or layouts to make sure content feels true to your brand identity.
+    - generic [ref=f3e95]:
+      - heading "Try it now" [level=2] [ref=f3e96]
+      - link "Sign up" [ref=f3e98] [cursor=pointer]:
+        - /url: /signup
+      - generic [ref=f3e102]:
+        - generic [ref=f3e104]:
+          - button "Add footage to start" [ref=f3e106] [cursor=pointer]
+          - generic [ref=f3e114]:
+            - button "Add style" [ref=f3e116] [cursor=pointer]
+            - button "Create my video" [disabled] [ref=f3e122]
+        - generic [ref=f3e126]:
+          - radiogroup "Select a style" [ref=f3e127]:
+            - radio "Cove" [ref=f3e128] [cursor=pointer]:
+              - generic [ref=f3e129]:
+                - img "Cove" [ref=f3e131]
+                - generic [ref=f3e132]: Cove
+            - radio "Energy" [ref=f3e134] [cursor=pointer]:
+              - generic [ref=f3e135]:
+                - img "Energy" [ref=f3e137]
+                - generic [ref=f3e138]: Energy
+            - radio "M81" [ref=f3e140] [cursor=pointer]:
+              - generic [ref=f3e141]:
+                - img "M81" [ref=f3e143]
+                - generic [ref=f3e144]: M81
+            - radio "Arion Pink" [ref=f3e146] [cursor=pointer]:
+              - generic [ref=f3e147]:
+                - img "Arion Pink" [ref=f3e149]
+                - generic [ref=f3e150]: Arion Pink
+            - radio "Quintessence" [ref=f3e152] [cursor=pointer]:
+              - generic [ref=f3e153]:
+                - img "Quintessence" [ref=f3e155]
+                - generic [ref=f3e156]: Quintessence
+            - radio "Bellatrix" [ref=f3e158] [cursor=pointer]:
+              - generic [ref=f3e159]:
+                - img "Bellatrix" [ref=f3e161]
+                - generic [ref=f3e162]: Bellatrix
+            - radio "Prism" [ref=f3e164] [cursor=pointer]:
+              - generic [ref=f3e165]:
+                - img "Prism" [ref=f3e167]
+                - generic [ref=f3e168]: Prism
+            - radio "Freshly" [ref=f3e170] [cursor=pointer]:
+              - generic [ref=f3e171]:
+                - img "Freshly" [ref=f3e173]
+                - generic [ref=f3e174]: Freshly
+            - radio "Thuban" [ref=f3e176] [cursor=pointer]:
+              - generic [ref=f3e177]:
+                - img "Thuban" [ref=f3e179]
+                - generic [ref=f3e180]: Thuban
+            - radio "Mars" [ref=f3e182] [cursor=pointer]:
+              - generic [ref=f3e183]:
+                - img "Mars" [ref=f3e185]
+                - generic [ref=f3e186]: Mars
+            - radio "Runway" [ref=f3e188] [cursor=pointer]:
+              - generic [ref=f3e189]:
+                - img "Runway" [ref=f3e191]
+                - generic [ref=f3e192]: Runway
+            - radio "Grace" [ref=f3e194] [cursor=pointer]:
+              - generic [ref=f3e195]:
+                - img "Grace" [ref=f3e197]
+                - generic [ref=f3e198]: Grace
+            - radio "Copernicus" [ref=f3e200] [cursor=pointer]:
+              - generic [ref=f3e201]:
+                - img "Copernicus" [ref=f3e203]
+                - generic [ref=f3e204]: Copernicus
+            - radio "Aldebaran" [ref=f3e206] [cursor=pointer]:
+              - generic [ref=f3e207]:
+                - img "Aldebaran" [ref=f3e209]
+                - generic [ref=f3e210]: Aldebaran
+            - radio "Nova" [ref=f3e212] [cursor=pointer]:
+              - generic [ref=f3e213]:
+                - img "Nova" [ref=f3e215]
+                - generic [ref=f3e216]: Nova
+            - radio "Alycone Blue" [ref=f3e218] [cursor=pointer]:
+              - generic [ref=f3e219]:
+                - img "Alycone Blue" [ref=f3e221]
+                - generic [ref=f3e222]: Alycone Blue
+            - radio "Travel" [ref=f3e224] [cursor=pointer]:
+              - generic [ref=f3e225]:
+                - img "Travel" [ref=f3e227]
+                - generic [ref=f3e228]: Travel
+            - radio "Andromeda" [ref=f3e230] [cursor=pointer]:
+              - generic [ref=f3e231]:
+                - img "Andromeda" [ref=f3e233]
+                - generic [ref=f3e234]: Andromeda
+            - radio "Cassiopeia" [ref=f3e236] [cursor=pointer]:
+              - generic [ref=f3e237]:
+                - img "Cassiopeia" [ref=f3e239]
+                - generic [ref=f3e240]: Cassiopeia
+            - radio "Citadelle" [ref=f3e242] [cursor=pointer]:
+              - generic [ref=f3e243]:
+                - img "Citadelle" [ref=f3e245]
+                - generic [ref=f3e246]: Citadelle
+          - button "Scroll left" [ref=f3e249] [cursor=pointer]
+          - button "Scroll right" [ref=f3e252] [cursor=pointer]
+        - paragraph [ref=f3e255]:
+          - text: By uploading a video to be edited using AI, you are agreeing to our
+          - link "Terms" [ref=f3e256] [cursor=pointer]:
+            - /url: https://mirage.app/legal/captions-web-terms
+          - text: and have read our
+          - link "Privacy Policy" [ref=f3e257] [cursor=pointer]:
+            - /url: https://mirage.app/legal/privacy-policy
+          - text: .
+    - generic [ref=f3e258]:
+      - heading "Auto-captions in three easy steps" [level=2] [ref=f3e259]
+      - generic [ref=f3e260]:
+        - generic [ref=f3e261]:
+          - img "Woman with blonde hair smiling at camera with blue folder icon and gradient background overlay" [ref=f3e263]
+          - generic [ref=f3e264]:
+            - heading "Upload your video" [level=3] [ref=f3e265]
+            - paragraph [ref=f3e266]:
+              - text: Import directly from your camera roll or record within
+              - link "the Captions app" [ref=f3e267] [cursor=pointer]:
+                - /url: /download
+              - text: .
+        - generic [ref=f3e268]:
+          - img "Woman with blonde hair speaking into microphone with text overlay reading 'If there's only one thing' on gradient background" [ref=f3e270]
+          - generic [ref=f3e271]:
+            - heading "Add captions" [level=3] [ref=f3e272]
+            - paragraph [ref=f3e273]: Captions auto-generates subtitles in seconds. Edit or restyle to fit your brand.
+        - generic [ref=f3e274]:
+          - img "Blonde woman with blue eyes speaking into microphone during podcast recording with text overlay and export button" [ref=f3e276]
+          - generic [ref=f3e277]:
+            - heading "Share" [level=3] [ref=f3e278]
+            - paragraph [ref=f3e279]: Export and post directly to any social platform—all optimized for the right format.
+    - generic [ref=f3e280]:
+      - heading "Why add video captions?" [level=2] [ref=f3e281]
+      - generic [ref=f3e282]:
+        - generic [ref=f3e283]:
+          - generic [ref=f3e284]:
+            - heading "Deepen engagement" [level=3] [ref=f3e285]
+            - paragraph [ref=f3e286]: Most social video gets watched on mute. Captions keep viewers in the story with the sound off. Style them to match your brand and stop the scroll.
+          - generic [ref=f3e287]:
+            - heading "Broaden your reach" [level=3] [ref=f3e288]
+            - paragraph [ref=f3e289]: Many social platforms use video captions to inform distribution. Captions also help more people understand your content across languages and platforms.
+          - generic [ref=f3e290]:
+            - heading "Improve accessibility" [level=3] [ref=f3e291]
+            - paragraph [ref=f3e292]: Captions make your videos work for everyone, including viewers who are deaf or hard of hearing. More inclusive content also means a more expansive audience.
+        - img "Woman with long dark hair wearing a black sweater, with a motivational caption and Export to Social button overlay, showing how Captions stylizes and exports captioned videos." [ref=f3e294]
+    - generic [ref=f3e295]:
+      - heading "Features you'll love:" [level=2] [ref=f3e296]
+      - generic [ref=f3e297]:
+        - generic [ref=f3e299]:
+          - heading "Handles any voice" [level=3] [ref=f3e300]
+          - paragraph [ref=f3e302]: Captions' AI is powerful. It can handle accents, fast speech, technical vocabulary and even multiple speakers.
+        - generic [ref=f3e304]:
+          - heading "Customizable styles" [level=3] [ref=f3e305]
+          - paragraph [ref=f3e307]: Choose from styles like animated word-by-word captions, highlights or bold stacks. Or, build your own style to match custom fonts and colors.
+        - generic [ref=f3e309]:
+          - heading "Reusable videos" [level=3] [ref=f3e310]
+          - paragraph [ref=f3e312]: Because Captions adds captions directly to video files, you can reformat and reuse for multiple platforms. Just pick a different export size to export another version.
+    - generic [ref=f3e314]:
+      - heading "Start now" [level=2] [ref=f3e315]
+      - generic [ref=f3e316]:
+        - link "Sign up" [ref=f3e317] [cursor=pointer]:
+          - /url: /signup
+        - link "Get the app" [ref=f3e318] [cursor=pointer]:
+          - /url: /download
+    - generic [ref=f3e320]:
+      - heading "Frequently Asked Questions" [level=2] [ref=f3e321]
+      - generic [ref=f3e322]:
+        - group [ref=f3e323]:
+          - generic "What is an AI caption generator?" [ref=f3e324] [cursor=pointer]
+        - group [ref=f3e325]:
+          - generic "Why do I need video captions for social media?" [ref=f3e326] [cursor=pointer]
+        - group [ref=f3e327]:
+          - generic "How accurate are Captions’ subtitles?" [ref=f3e328] [cursor=pointer]
+        - group [ref=f3e329]:
+          - generic "Can I add captions in multiple languages?" [ref=f3e330] [cursor=pointer]
+        - group [ref=f3e331]:
+          - generic "Do I need to manually sync subtitles?" [ref=f3e332] [cursor=pointer]
+        - group [ref=f3e333]:
+          - generic "How do I add captions to TikTok and Instagram Reels?" [ref=f3e334] [cursor=pointer]
+        - group [ref=f3e335]:
+          - generic "What are open vs. closed captions?" [ref=f3e336] [cursor=pointer]
+        - group [ref=f3e337]:
+          - generic "How do I choose between captions or subtitles?" [ref=f3e338] [cursor=pointer]
+        - group [ref=f3e339]:
+          - generic "What's the difference between open captions, closed captions and SRT files?" [ref=f3e340] [cursor=pointer]
+  - contentinfo [ref=f3e342]:
+    - generic [ref=f3e343]:
+      - generic [ref=f3e344]:
+        - generic [ref=f3e351]:
+          - link "LinkedIn" [ref=f3e352] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/trymirage/
+          - link "X" [ref=f3e357] [cursor=pointer]:
+            - /url: https://x.com/trymirage
+          - link "TikTok" [ref=f3e362] [cursor=pointer]:
+            - /url: https://www.tiktok.com/@captionsapp
+          - link "Instagram" [ref=f3e366] [cursor=pointer]:
+            - /url: https://www.instagram.com/getcaptionsapp
+          - link "Youtube" [ref=f3e373] [cursor=pointer]:
+            - /url: https://www.youtube.com/@try-mirage
+        - generic [ref=f3e377]:
+          - heading "Product" [level=2] [ref=f3e378]
+          - generic [ref=f3e379]:
+            - heading "Features" [level=3] [ref=f3e380]
+            - generic [ref=f3e381]:
+              - link "Edit with AI" [ref=f3e382] [cursor=pointer]:
+                - /url: /features/edit-with-ai
+              - link "Create avatars" [ref=f3e383] [cursor=pointer]:
+                - /url: /features/generate-ai-avatars
+              - link "Create clips" [ref=f3e384] [cursor=pointer]:
+                - /url: /features/create-clips
+              - link "Add captions" [ref=f3e385] [cursor=pointer]:
+                - /url: /features/add-captions-to-videos
+              - link "Translate videos" [ref=f3e386] [cursor=pointer]:
+                - /url: /features/translate-videos-with-ai
+              - link "Correct eye contact" [ref=f3e387] [cursor=pointer]:
+                - /url: /features/correct-your-eye-contact
+              - link "AI Edit styles" [ref=f3e388] [cursor=pointer]:
+                - /url: /styles
+          - generic [ref=f3e389]:
+            - heading "Get Started" [level=3] [ref=f3e390]
+            - generic [ref=f3e391]:
+              - link "Pricing" [ref=f3e392] [cursor=pointer]:
+                - /url: /pricing
+              - link "Sign up online" [ref=f3e393] [cursor=pointer]:
+                - /url: /signup
+              - link "Get the app" [ref=f3e394] [cursor=pointer]:
+                - /url: /download
+        - generic [ref=f3e395]:
+          - heading "Company" [level=2] [ref=f3e396]
+          - generic [ref=f3e397]:
+            - heading "Resources" [level=3] [ref=f3e398]
+            - generic [ref=f3e399]:
+              - link "Blog" [ref=f3e400] [cursor=pointer]:
+                - /url: /blog
+              - link "Help Center" [ref=f3e401] [cursor=pointer]:
+                - /url: https://captions.ai/help/
+              - link "Careers" [ref=f3e402] [cursor=pointer]:
+                - /url: https://jobs.ashbyhq.com/mirage
+              - link "About Mirage" [ref=f3e403] [cursor=pointer]:
+                - /url: https://mirage.app/about-us
+              - link "General inquiries" [ref=f3e404] [cursor=pointer]:
+                - /url: mailto:hello@captions.ai
+              - link "Press kit" [ref=f3e405] [cursor=pointer]:
+                - /url: https://www.dropbox.com/scl/fo/w4u3w6eo5hhu5eip3stup/ACPuH05IMv0afL5ZxyOFbC8?rlkey=osndx4723jyn9ndtsnarbpv6c&st=01b7zso7&dl=0
+      - generic [ref=f3e406]:
+        - generic [ref=f3e407]:
+          - heading [level=2] [ref=f3e408]:
+            - link "Solutions" [ref=f3e409] [cursor=pointer]:
+              - /url: /solutions
+          - generic [ref=f3e410]:
+            - heading "Businesses" [level=3] [ref=f3e411]
+            - generic [ref=f3e412]:
+              - link "Ecommerce" [ref=f3e413] [cursor=pointer]:
+                - /url: /solutions/ecommerce
+              - link "Enterprise" [ref=f3e414] [cursor=pointer]:
+                - /url: /solutions/enterprise
+              - link "Entrepreneurs" [ref=f3e415] [cursor=pointer]:
+                - /url: /solutions/entrepreneurs
+              - link "Marketers" [ref=f3e416] [cursor=pointer]:
+                - /url: /solutions/marketers-and-agencies
+              - link "Small businesses" [ref=f3e417] [cursor=pointer]:
+                - /url: /solutions/small-businesses
+          - generic [ref=f3e418]:
+            - heading "Creators" [level=3] [ref=f3e419]
+            - generic [ref=f3e420]:
+              - link "Beauty" [ref=f3e421] [cursor=pointer]:
+                - /url: /solutions/beauty-creators
+              - link "Educators" [ref=f3e422] [cursor=pointer]:
+                - /url: /solutions/teachers-and-education-creators
+              - link "Faith" [ref=f3e423] [cursor=pointer]:
+                - /url: /solutions/church-content-creators
+              - link "Fashion" [ref=f3e424] [cursor=pointer]:
+                - /url: /solutions/fashion-creators
+              - link "Fitness" [ref=f3e425] [cursor=pointer]:
+                - /url: /solutions/fitness-creators
+              - link "Food" [ref=f3e426] [cursor=pointer]:
+                - /url: /solutions/food-creators
+              - link "Home & DIY" [ref=f3e427] [cursor=pointer]:
+                - /url: /solutions/home-and-diy-creators
+              - link "Podcasters" [ref=f3e428] [cursor=pointer]:
+                - /url: /solutions/podcasters
+          - generic [ref=f3e429]:
+            - heading "Professional Services" [level=3] [ref=f3e430]
+            - generic [ref=f3e431]:
+              - link "Finance" [ref=f3e432] [cursor=pointer]:
+                - /url: /solutions/financial-advisors-and-creators
+              - link "Healthcare" [ref=f3e433] [cursor=pointer]:
+                - /url: /solutions/healthcare-professionals
+              - link "Legal" [ref=f3e434] [cursor=pointer]:
+                - /url: /solutions/legal-experts
+              - link "Life coaches" [ref=f3e435] [cursor=pointer]:
+                - /url: /solutions/life-coaches-and-motivational-speakers
+              - link "Nonprofits" [ref=f3e436] [cursor=pointer]:
+                - /url: /solutions/nonprofits
+              - link "Real estate" [ref=f3e437] [cursor=pointer]:
+                - /url: /solutions/real-estate-agents
+        - generic [ref=f3e438]:
+          - heading "Use Cases" [level=2] [ref=f3e439]
+          - generic [ref=f3e440]:
+            - heading [level=3] [ref=f3e441]:
+              - link "Formats" [ref=f3e442] [cursor=pointer]:
+                - /url: /use-cases
+            - generic [ref=f3e443]:
+              - link "Ads" [ref=f3e444] [cursor=pointer]:
+                - /url: /use-cases/video-ads
+              - link "AI UGC" [ref=f3e445] [cursor=pointer]:
+                - /url: /use-cases/ai-ugc-videos
+              - link "Faceless AI voiceovers" [ref=f3e446] [cursor=pointer]:
+                - /url: /use-cases/faceless-video-ai-voiceover
+              - link "Product demos" [ref=f3e447] [cursor=pointer]:
+                - /url: /use-cases/product-demo-videos
+              - link "Real estate listing videos" [ref=f3e448] [cursor=pointer]:
+                - /url: /use-cases/real-estate-listing-videos
+              - link "Social media videos" [ref=f3e449] [cursor=pointer]:
+                - /url: /tools/social-media-video-creator
+              - link "Talking head videos" [ref=f3e450] [cursor=pointer]:
+                - /url: /use-cases/talking-head-videos
+              - link "Thought leadership" [ref=f3e451] [cursor=pointer]:
+                - /url: /use-cases/thought-leadership-videos
+              - link "Tutorials" [ref=f3e452] [cursor=pointer]:
+                - /url: /use-cases/tutorial-video-maker
+          - generic [ref=f3e453]:
+            - heading "Platforms" [level=3] [ref=f3e454]
+            - generic [ref=f3e455]:
+              - link "Facebook" [ref=f3e456] [cursor=pointer]:
+                - /url: /tools/facebook-video-ad-creator
+              - link "Instagram" [ref=f3e457] [cursor=pointer]:
+                - /url: /tools/ai-instagram-reel-generator
+              - link "LinkedIn" [ref=f3e458] [cursor=pointer]:
+                - /url: /tools/linkedin-video-maker
+              - link "TikTok" [ref=f3e459] [cursor=pointer]:
+                - /url: /tools/tiktok-video-generator
+              - link "YouTube" [ref=f3e460] [cursor=pointer]:
+                - /url: /tools/youtube-video-editor
+              - link "YouTube Shorts" [ref=f3e461] [cursor=pointer]:
+                - /url: /tools/youtube-shorts-maker
+          - generic [ref=f3e462]:
+            - heading "Tools" [level=3] [ref=f3e463]
+            - generic [ref=f3e464]:
+              - link "Ad generator" [ref=f3e465] [cursor=pointer]:
+                - /url: /tools/ai-ad-generator
+              - link "AI video editor" [ref=f3e466] [cursor=pointer]:
+                - /url: /tools/ai-video-editor
+              - link "AI video generator" [ref=f3e467] [cursor=pointer]:
+                - /url: /tools/ai-video-generator
+              - link "B-roll" [ref=f3e468] [cursor=pointer]:
+                - /url: /tools/ai-b-roll-generator
+              - link "Clone yourself" [ref=f3e469] [cursor=pointer]:
+                - /url: /solutions/ai-clone-yourself
+              - link "Prompt to video" [ref=f3e470] [cursor=pointer]:
+                - /url: /tools/prompt-to-video
+              - link "Script to video" [ref=f3e471] [cursor=pointer]:
+                - /url: /tools/script-to-video-generator
+              - link "Text-based video editor" [ref=f3e472] [cursor=pointer]:
+                - /url: /tools/text-based-video-editor
+              - link "Transition editor" [ref=f3e473] [cursor=pointer]:
+                - /url: /tools/transition-video-editor
+      - generic [ref=f3e474]:
+        - paragraph [ref=f3e475]: © 2026 NOCAP, Inc. d/b/a Captions. All rights reserved.
+        - generic [ref=f3e476]:
+          - button "Privacy choices" [ref=f3e477] [cursor=pointer]
+          - button "Do Not Sell or Share My Personal Information" [ref=f3e478] [cursor=pointer]
+          - link "Cookie notice" [ref=f3e479] [cursor=pointer]:
+            - /url: /cookie-notice
+          - link "Privacy Policy" [ref=f3e480] [cursor=pointer]:
+            - /url: https://mirage.app/legal/privacy-policy
+          - link "Safety & Security" [ref=f3e481] [cursor=pointer]:
+            - /url: https://mirage.app/safety-and-security
+          - link "Captions on Web Terms" [ref=f3e482] [cursor=pointer]:
+            - /url: https://mirage.app/legal/captions-web-terms
+          - link "Captions on Web User Terms" [ref=f3e483] [cursor=pointer]:
+            - /url: https://mirage.app/legal/captions-web-user-terms
+          - link "Captions Terms" [ref=f3e484] [cursor=pointer]:
+            - /url: https://mirage.app/legal/captions-terms
+  - button "Privacy choices" [ref=f3e486] [cursor=pointer]
+  - region "Notifications alt+T"
