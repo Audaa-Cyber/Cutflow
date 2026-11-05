@@ -18,7 +18,16 @@ BLACK = "&H00000000"
 CREAM = "&H00F7F4EC"
 DARK_PAPER = "&H00120F0E"
 
-FONTS_SUPPORTED = ("Montserrat", "Merriweather", "JetBrains Mono")
+FONTS_SUPPORTED = (
+    "Montserrat",
+    "Merriweather",
+    "JetBrains Mono",
+    "Anton",
+    "Bebas Neue",
+    "Komika Axis",
+    "Syne",
+    "The Bold Font",
+)
 DEFAULT_FONT = "Montserrat"
 
 
@@ -62,6 +71,27 @@ class CaptionSpec:
     active: str = "accent"                   # accent | box | bracket | underline | marker
     active_pop: bool = True
     bracket: str = "[ ]"
+
+    # ─ kinetic motion & physics (Phase 3) ────────────────────────────────
+    kinetic_mode: str = "pop"                # pop | wave | glider | none
+    spring_tension: float = 280.0            # harmonic oscillator stiffness k
+    spring_friction: float = 24.0           # damping coefficient c
+    spring_mass: float = 1.0                # oscillator mass m
+
+    # ─ Multi-Pass Text Shaders & Gradients (Phase 4) ─────────────────────
+    tilt_deg: float = 0.0                    # Dynamic text tilt angle (e.g. -2.5 for comic punch)
+    outer_stroke_width: float = 0.0          # Concentric outer outline width multiplier
+    outer_stroke_color: Optional[str] = None # Concentric outer outline color (#RRGGBB or ASS)
+    inner_stroke_width: float = 0.0          # Concentric inner outline width multiplier
+    inner_stroke_color: Optional[str] = None # Concentric inner outline color (#RRGGBB or ASS)
+    shadow_blur: float = 0.0                 # Ambient / drop shadow blur radius in px
+    shadow_x: float = 0.0                    # Shadow horizontal offset px
+    shadow_y: float = 0.0                    # Shadow vertical offset px
+    shadow_color: Optional[str] = None       # Shadow color (#RRGGBB or rgba)
+    glow_blur: float = 0.0                   # Wide diffuse neon / bloom glow radius px
+    glow_color: Optional[str] = None         # Diffuse glow color
+    active_gradient: Optional[tuple[str, str]] = None # Gradient stops for active word (e.g. ("#FFE600", "#FF8400"))
+    primary_gradient: Optional[tuple[str, str]] = None # Gradient stops for resting words
 
     # ─ headline / hook ───────────────────────────────────────────────────
     headline: str = "plain"                  # none | plain | badge | banner | serif | kicker

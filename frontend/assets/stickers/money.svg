@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="billGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E676"/>
+      <stop offset="100%" stop-color="#00A344"/>
+    </linearGradient>
+  </defs>
+  <!-- Flying Money Wings -->
+  <path d="M22 46 C32 28 50 36 46 54 C34 56 22 56 22 46 Z" fill="#E8F5E9" stroke="#FFFFFF" stroke-width="4"/>
+  <path d="M106 46 C96 28 78 36 82 54 C94 56 106 56 106 46 Z" fill="#E8F5E9" stroke="#FFFFFF" stroke-width="4"/>
+  <!-- Dollar Bill Stack -->
+  <rect x="28" y="44" width="72" height="46" rx="8" transform="rotate(-6 64 67)"
+        fill="#007E33" stroke="#FFFFFF" stroke-width="5"/>
+  <rect x="28" y="40" width="72" height="46" rx="8"
+        fill="url(#billGrad)" stroke="#FFFFFF" stroke-width="6"/>
+  <!-- Border Inset -->
+  <rect x="34" y="46" width="60" height="34" rx="4" fill="none" stroke="#A7FFEB" stroke-width="2" stroke-dasharray="4 2"/>
+  <!-- Center Seal -->
+  <circle cx="64" cy="63" r="13" fill="#00C853" stroke="#FFFFFF" stroke-width="2"/>
+  <text x="64" y="70" font-family="Arial, sans-serif" font-weight="900" font-size="20" fill="#FFFFFF" text-anchor="middle">$</text>
+</svg>

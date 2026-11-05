@@ -1,0 +1,27 @@
+{
+  "name": "cutflow",
+  "version": "1.0.0",
+  "description": "Turn long videos into short-form clips.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Audaa-Cyber/Cutflow.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Audaa-Cyber/Cutflow/issues"
+  },
+  "homepage": "https://github.com/Audaa-Cyber/Cutflow#readme",
+  "dependencies": {
+    "@napi-rs/canvas": "1.1.0"
+  }
+}

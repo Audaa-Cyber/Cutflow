@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="rocketBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#DCE3EE"/>
+    </linearGradient>
+    <linearGradient id="rocketPlume" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFDD00"/>
+      <stop offset="100%" stop-color="#FF2200"/>
+    </linearGradient>
+  </defs>
+  <!-- Flame Plume -->
+  <path d="M42 86 L24 104 C20 108 26 114 30 110 L48 92 Z" fill="url(#rocketPlume)" stroke="#FFFFFF" stroke-width="4"/>
+  <!-- Fins -->
+  <path d="M52 64 L26 84 C22 87 26 94 32 94 L58 84 Z" fill="#FF2A4B" stroke="#FFFFFF" stroke-width="4"/>
+  <path d="M64 52 L84 26 C87 22 94 26 94 32 L84 58 Z" fill="#FF2A4B" stroke="#FFFFFF" stroke-width="4"/>
+  <!-- Main Fuselage -->
+  <path d="M96 32 C78 20 54 34 44 56 C40 64 38 74 38 84 L44 90 C54 90 64 88 72 84 C94 74 108 50 96 32 Z"
+        fill="url(#rocketBody)" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Porthole Window -->
+  <circle cx="70" cy="58" r="10" fill="#00D2FF" stroke="#FFFFFF" stroke-width="3"/>
+  <circle cx="68" cy="56" r="3" fill="#FFFFFF"/>
+  <!-- Tip Cone -->
+  <path d="M96 32 C91 27 82 23 76 22 C84 32 90 40 96 32 Z" fill="#FF2A4B"/>
+</svg>

@@ -367,6 +367,10 @@ function renderClips(job) {
             .ASS (Karaoke)
           </a>
         </div>
+        <button type="button" class="wysiwyg-edit-btn" data-clip-index="${index}" data-filename="${escapeHtml(clip.filename)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span>Interactive Caption Studio (WYSIWYG)</span>
+        </button>
         <p class="quality-download-note">First export at a new quality takes a moment. Later downloads are cached.</p>
       </div>
     </article>`;
@@ -380,6 +384,15 @@ function renderClips(job) {
     } else {
       video.addEventListener("loadedmetadata", onMeta, { once: true });
     }
+  });
+
+  // Attach WYSIWYG studio opener buttons
+  grid.querySelectorAll(".wysiwyg-edit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const clipIdx = parseInt(btn.dataset.clipIndex, 10);
+      const clip = (job.clips || [])[clipIdx];
+      if (clip) openCaptionStudio(clip, job);
+    });
   });
 }
 function renderProjects() {
@@ -576,26 +589,248 @@ function init() {
     link.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
 
-  // Caption Style Names & Selection Sync
+  // Caption Style Names & Selection Sync (Phase 4 Archetypes)
   const captionStyleNames = {
-    focus: "Focus · Inverted Dialogue Badge Boxes",
-    linen: "Linen · Editorial Serif Hook & Subtitles",
-    evo: "Evo · Frosted Glass Gradient Pill & Cyan Pop",
-    lift: "Lift · Curved Header Banner & Emerald Pop",
-    stack: "Stack · Brutalist Technical Box & Grid",
-    align: "Align · Polaroid Frame & Letterbox Dialogue",
-    prime: "Prime · Trending Viral Active Pop",
-    impact: "Impact II · Bold High-Contrast Punch",
-    paper: "Paper II · Polished Editorial Pill",
-    elevate: "Elevate · Luxury Minimal Aesthetic",
+    hormozi: "Hormozi Punch · Komika Heavy Strike",
+    impact: "Impact II · Anton Massive Punch",
+    glow: "Cyberpunk · Syne Neon Bloom",
+    prime: "Prime · The Bold Font Viral Pop",
+    align: "Align · Bebas Neue Letterbox",
     pop: "Pop · Bouncy Neon Kinetic",
-    y2k: "Y2K · Retro Cyberpunk Glow",
+    paper: "Paper II · Polished Editorial Pill",
+    evo: "Evo · Frosted Glass Gradient Pill",
+    linen: "Linen · Editorial Serif Hook",
+    focus: "Focus · Inverted Dialogue Badge Boxes",
+    stack: "Stack · JetBrains Mono Brutalist Grid",
+    y2k: "Y2K · Cyberpunk Scanlines",
+    lift: "Lift · Curved Header Banner & Emerald Pop",
     chalk: "Chalk · Tutorial Sketch Highlighter",
+    pulse: "Pulse Viral · Montserrat Dynamic Wave",
+    elevate: "Elevate · Luxury Minimal Aesthetic",
+    karaoke: "Dynamic Karaoke Pill · Lime Glider",
     clean: "Clean · Subtitle Standard",
-    pulse: "Pulse · Dynamic Karaoke Highlight",
-    glow: "Neon Cyber Glow · Radiant Glowing Accent",
-    hormozi: "Hormozi Gold Pop · Bold Creator Style",
-    karaoke: "Dynamic Karaoke Pill · High-Contrast Pill",
+  };
+
+  const PRESET_RECIPES = {
+    hormozi: {
+      font: "Komika Axis",
+      uppercase: true,
+      kinetic_mode: "pop",
+      tilt_deg: -2.5,
+      colors: { primary: "#ffffff", accent: "#ffe600", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 2.4, color: "#000000" },
+        inner_stroke: { width: 0.7, color: "#ffffff" },
+        active_gradient: ["#FFE600", "#FF8400"],
+        shadow: { blur: 6.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.90)" },
+      },
+      spring_physics: { tension: 300, friction: 13, mass: 1.0, scale_overshoot: 1.28, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    impact: {
+      font: "Anton",
+      uppercase: true,
+      kinetic_mode: "pop",
+      tilt_deg: 1.5,
+      colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 2.8, color: "#000000" },
+        active_gradient: ["#D5FF5F", "#A6FF00"],
+        shadow: { blur: 12.0, x: 0, y: 6.0, color: "rgba(0, 0, 0, 0.85)" },
+      },
+      spring_physics: { tension: 320, friction: 14, mass: 1.0, scale_overshoot: 1.30, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    glow: {
+      font: "Syne",
+      uppercase: true,
+      kinetic_mode: "wave",
+      colors: { primary: "#f0fdf4", accent: "#00f5d4", outline: "#0b0d13", upcoming: "#98a2b3", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 1.8, color: "#0B0D13" },
+        glow: { blur: 22.0, color: "#00F5D4" },
+        active_gradient: ["#B0FFEA", "#00F5D4"],
+        shadow: { blur: 8.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
+      },
+      spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    prime: {
+      font: "The Bold Font",
+      uppercase: true,
+      kinetic_mode: "pop",
+      colors: { primary: "#ffffff", accent: "#fff500", outline: "#10110f", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 2.2, color: "#10110F" },
+        active_gradient: ["#FFF500", "#FF6B6B"],
+        shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
+      },
+      spring_physics: { tension: 270, friction: 15, mass: 1.0, scale_overshoot: 1.22, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    align: {
+      font: "Bebas Neue",
+      uppercase: true,
+      kinetic_mode: "wave",
+      frame: "letterbox",
+      colors: { primary: "#ffffff", accent: "#fff3b0", outline: "#141414", upcoming: "#b4b4b4", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 1.2, color: "#141414" },
+        active_gradient: ["#FFF3B0", "#E09F3E"],
+      },
+      spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    pop: {
+      font: "The Bold Font",
+      uppercase: true,
+      kinetic_mode: "pop",
+      colors: { primary: "#ffffff", accent: "#ff007f", outline: "#120a1e", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 2.4, color: "#120A1E" },
+        inner_stroke: { width: 0.8, color: "#FF007F" },
+        glow: { blur: 16.0, color: "#FF007F" },
+        active_gradient: ["#FF007F", "#FFAA00"],
+      },
+      spring_physics: { tension: 290, friction: 14, mass: 1.0, scale_overshoot: 1.24, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    paper: {
+      font: "Merriweather",
+      uppercase: false,
+      kinetic_mode: "glider",
+      colors: { primary: "#120f0e", accent: "#2acbc7", outline: "#120f0e", upcoming: "#78716c", fill: "#f7ece7", fill_text: "#120f0e" },
+      shader_stack: {
+        shadow: { blur: 14.0, x: 0, y: 5.0, color: "rgba(0, 0, 0, 0.35)" },
+      },
+      spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
+      caption_box: "pill",
+    },
+    evo: {
+      font: "Montserrat",
+      uppercase: true,
+      kinetic_mode: "glider",
+      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#161420", upcoming: "#a9a9a9", fill: "#221832", fill_text: "#ffffff" },
+      shader_stack: {
+        glow: { blur: 18.0, color: "#00FFFF" },
+        active_gradient: ["#D0FFFF", "#00FFFF"],
+      },
+      spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+      caption_box: "pill",
+    },
+    linen: {
+      font: "Merriweather",
+      uppercase: false,
+      kinetic_mode: "wave",
+      frame: "rules",
+      colors: { primary: "#f7f4ec", accent: "#00c4a8", outline: "#1e1c1a", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 0.8, color: "#1E1C1A" },
+        shadow: { blur: 5.0, x: 0, y: 2.0, color: "rgba(0, 0, 0, 0.50)" },
+      },
+      spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    focus: {
+      font: "Montserrat",
+      uppercase: true,
+      kinetic_mode: "pop",
+      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        shadow: { blur: 8.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.60)" },
+      },
+      spring_physics: { tension: 280, friction: 24, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
+      caption_box: "per_word",
+    },
+    stack: {
+      font: "JetBrains Mono",
+      uppercase: true,
+      kinetic_mode: "pop",
+      frame: "grid",
+      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#000000", upcoming: "#777777", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 1.6, color: "#000000" },
+        active_gradient: ["#FAFF00", "#70FF00"],
+      },
+      spring_physics: { tension: 250, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    y2k: {
+      font: "JetBrains Mono",
+      uppercase: true,
+      kinetic_mode: "wave",
+      frame: "scanlines",
+      colors: { primary: "#ffffff", accent: "#ff007f", outline: "#000000", upcoming: "#777777", fill: "#ff007f", fill_text: "#ffffff" },
+      shader_stack: {
+        glow: { blur: 20.0, color: "#FF007F" },
+        active_gradient: ["#FF007F", "#FFAA00"],
+      },
+      spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    lift: {
+      font: "Bebas Neue",
+      uppercase: true,
+      kinetic_mode: "pop",
+      colors: { primary: "#ffffff", accent: "#05ffd5", outline: "#101812", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 1.8, color: "#101812" },
+        active_gradient: ["#B5FFEA", "#05FFD5"],
+      },
+      spring_physics: { tension: 260, friction: 16, mass: 1.0, scale_overshoot: 1.20, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    chalk: {
+      font: "Merriweather",
+      uppercase: false,
+      kinetic_mode: "wave",
+      frame: "rules",
+      colors: { primary: "#ffffff", accent: "#00d4fd", outline: "#141414", upcoming: "#999999", fill: "#00d4fd", fill_text: "#141414" },
+      shader_stack: {
+        shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.40)" },
+      },
+      spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    pulse: {
+      font: "Montserrat",
+      uppercase: true,
+      kinetic_mode: "wave",
+      colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#121410", upcoming: "#888888", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 2.0, color: "#121410" },
+        active_gradient: ["#C6FFED", "#66F4C6"],
+      },
+      spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    elevate: {
+      font: "Montserrat",
+      uppercase: true,
+      kinetic_mode: "wave",
+      frame: "rules",
+      colors: { primary: "#f2f2f2", accent: "#009c63", outline: "#101010", upcoming: "#666666", fill: "#ffffff", fill_text: "#000000" },
+      shader_stack: {
+        outer_stroke: { width: 0.5, color: "#101010" },
+      },
+      spring_physics: { tension: 200, friction: 20, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
+      caption_box: "none",
+    },
+    karaoke: {
+      font: "Montserrat",
+      uppercase: false,
+      kinetic_mode: "glider",
+      colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#181a14", upcoming: "#999999", fill: "#131a1b", fill_text: "#ffffff" },
+      spring_physics: { tension: 210, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
+      caption_box: "pill",
+    },
+    clean: {
+      font: "Montserrat",
+      uppercase: false,
+      kinetic_mode: "none",
+      colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+      caption_box: "none",
+    },
   };
 
   function selectCaptionStyle(style) {
@@ -784,3 +1019,429 @@ function updateCount(delta) {
   $("#clip-count-value").textContent = input.value;
 }
 document.addEventListener("DOMContentLoaded", init);
+
+if (typeof window !== "undefined") {
+  if (window.FontLoader) window.FontLoader.preloadAll();
+  if (window.StickerCompositor) window.StickerCompositor.preloadAll();
+}
+
+
+// ── WYSIWYG Caption Studio Live Controller (Phase 2) ─────────────────────────
+
+let activeStudio = {
+  clip: null,
+  job: null,
+  timeline: null,
+  rafId: null,
+  activeWordIdx: -1,
+  cleanups: [],
+};
+
+function formatTimePrecise(seconds) {
+  if (isNaN(seconds) || seconds < 0) return "00:00.00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+async function openCaptionStudio(clip, job) {
+  const modal = $("#caption-studio-modal");
+  if (!modal) return;
+
+  // Clean up any prior running studio instance
+  closeCaptionStudio();
+
+  activeStudio.clip = clip;
+  activeStudio.job = job;
+
+  // Ensure full timeline is available: from clip or fetch from API
+  if (clip.timeline && clip.timeline.words) {
+    activeStudio.timeline = JSON.parse(JSON.stringify(clip.timeline));
+  } else {
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/clips/${clip.filename}/timeline`);
+      if (res.ok) {
+        activeStudio.timeline = await res.json();
+      } else {
+        showToast("Loading timeline...");
+        activeStudio.timeline = {
+          start_ms: Math.round((clip.start || 0) * 1000),
+          end_ms: Math.round((clip.end || (clip.start + clip.duration || 5)) * 1000),
+          aspect_ratio: clip.aspect_ratio || job.aspect_ratio || "9:16",
+          styling_metadata: { preset_key: job.caption_style || "focus" },
+          words: [],
+          phrases: [],
+        };
+      }
+    } catch {
+      activeStudio.timeline = { words: [], phrases: [] };
+    }
+  }
+
+  // Deterministically ensure active font is ready before initial canvas frame draw
+  if (window.FontLoader && activeStudio.timeline && activeStudio.timeline.styling_metadata) {
+    const fName = activeStudio.timeline.styling_metadata.font || 'Montserrat';
+    await window.FontLoader.ensureFont(fName);
+  }
+
+  // Populate Video Source
+  const video = $("#studio-video");
+  const canvas = $("#studio-overlay-canvas");
+  const ctx = canvas.getContext("2d");
+  const scrubber = $("#studio-scrubber");
+  const timeDisplay = $("#studio-time-display");
+  const playBtn = $("#studio-play-btn");
+  const playIcon = $("#studio-play-icon");
+
+  video.src = clip.download_url;
+  video.currentTime = 0;
+  scrubber.value = 0;
+
+  // Populate Presets Scroller
+  const presetsContainer = $("#studio-presets-scroller");
+  const presetKeys = Object.keys(captionStyleNames);
+  const currentKey = activeStudio.timeline?.styling_metadata?.preset_key || job.caption_style || "focus";
+  $("#studio-active-preset-badge").textContent = currentKey.toUpperCase();
+
+  presetsContainer.innerHTML = presetKeys.map((k) => `
+    <button type="button" class="studio-preset-chip ${k === currentKey ? "active" : ""}" data-preset-key="${k}">
+      ${escapeHtml(k.toUpperCase())}
+    </button>
+  `).join("");
+
+  presetsContainer.querySelectorAll(".studio-preset-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const key = chip.dataset.presetKey;
+      presetsContainer.querySelectorAll(".studio-preset-chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      $("#studio-active-preset-badge").textContent = key.toUpperCase();
+
+      // Zero-latency update: switch styling metadata and immediately redraw
+      if (activeStudio.timeline) {
+        if (!activeStudio.timeline.styling_metadata) activeStudio.timeline.styling_metadata = {};
+        activeStudio.timeline.styling_metadata.preset_key = key;
+        activeStudio.timeline.styling_metadata.label = captionStyleNames[key] || key;
+
+        const recipe = PRESET_RECIPES[key];
+        if (recipe) {
+          Object.assign(activeStudio.timeline.styling_metadata, JSON.parse(JSON.stringify(recipe)));
+        }
+
+        if (window.FontLoader && recipe && recipe.font) {
+          window.FontLoader.ensureFont(recipe.font).then(() => renderStudioFrame());
+        } else {
+          renderStudioFrame();
+        }
+
+        if (sfxMixer) sfxMixer.syncTimeline(activeStudio.timeline);
+      }
+    });
+  });
+
+  // Initialize Phase 5 Synchronized SFX Sub-Mixer
+  let sfxMixer = null;
+  if (window.SFXSubMixer) {
+    sfxMixer = new window.SFXSubMixer();
+    sfxMixer.attachVideo(video);
+    sfxMixer.syncTimeline(activeStudio.timeline);
+    activeStudio.cleanups.push(() => {
+      if (sfxMixer) {
+        sfxMixer.dispose();
+        sfxMixer = null;
+      }
+    });
+  }
+
+  // Populate Words List with inline text edit & -50ms/+50ms nudge buttons
+  renderStudioWordsList();
+
+  function renderStudioFrame() {
+    if (!video || !canvas || !activeStudio.timeline) return;
+    const w = video.videoWidth || 1080;
+    const h = video.videoHeight || 1920;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
+    const t = video.currentTime || 0;
+    const dur = video.duration || clip.duration || 1;
+    scrubber.value = (t / dur) * 100;
+    timeDisplay.textContent = `${formatTimePrecise(t)} / ${formatTimePrecise(dur)}`;
+
+    if (window.CaptionCanvasRenderer) {
+      const res = window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, t, w, h);
+      highlightActiveWordRow(res.activeWordIdx);
+    }
+
+    if (sfxMixer) {
+      sfxMixer.update(t, video.paused);
+    }
+  }
+
+  function frameLoop() {
+    renderStudioFrame();
+    if (!video.paused && !video.ended) {
+      activeStudio.rafId = requestAnimationFrame(frameLoop);
+    }
+  }
+
+  // Play/Pause transport
+  function togglePlay() {
+    if (video.paused) {
+      video.play();
+    } else {
+      video.pause();
+    }
+  }
+
+  function onPlay() {
+    playIcon.innerHTML = `<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`;
+    if (!activeStudio.rafId) activeStudio.rafId = requestAnimationFrame(frameLoop);
+  }
+
+  function onPause() {
+    playIcon.innerHTML = `<polygon points="5 3 19 12 5 21 5 3"/>`;
+    if (activeStudio.rafId) {
+      cancelAnimationFrame(activeStudio.rafId);
+      activeStudio.rafId = null;
+    }
+    if (sfxMixer) sfxMixer.unduck();
+    renderStudioFrame();
+  }
+
+  function onScrub(e) {
+    const pct = parseFloat(e.target.value) / 100;
+    const dur = video.duration || clip.duration || 1;
+    video.currentTime = pct * dur;
+    if (sfxMixer) sfxMixer.resetTracking();
+    renderStudioFrame();
+  }
+
+  playBtn.addEventListener("click", togglePlay);
+  video.addEventListener("play", onPlay);
+  video.addEventListener("pause", onPause);
+  video.addEventListener("timeupdate", renderStudioFrame);
+  video.addEventListener("seeked", renderStudioFrame);
+  video.addEventListener("loadedmetadata", renderStudioFrame);
+  scrubber.addEventListener("input", onScrub);
+
+  activeStudio.cleanups.push(() => {
+    playBtn.removeEventListener("click", togglePlay);
+    video.removeEventListener("play", onPlay);
+    video.removeEventListener("pause", onPause);
+    video.removeEventListener("timeupdate", renderStudioFrame);
+    video.removeEventListener("seeked", renderStudioFrame);
+    video.removeEventListener("loadedmetadata", renderStudioFrame);
+    scrubber.removeEventListener("input", onScrub);
+    video.pause();
+    if (activeStudio.rafId) cancelAnimationFrame(activeStudio.rafId);
+  });
+
+  // Export with 1:1 Headless Parity
+  const exportBtn = $("#studio-export-btn");
+  if (exportBtn) {
+    exportBtn.onclick = async () => {
+      exportBtn.disabled = true;
+      exportBtn.innerHTML = `<span>Exporting with 1:1 Headless Parity...</span>`;
+      try {
+        const resp = await fetch(`/api/jobs/${job.id}/clips/${clip.filename}/export`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline: activeStudio.timeline }),
+        });
+        const result = await resp.json();
+        if (resp.ok && result.ok) {
+          showToast(`Export complete: 1:1 Skia pixel parity rendered!`);
+          clip.timeline = result.timeline;
+          clip.size = result.size;
+          video.src = `${clip.download_url}?t=${Date.now()}`;
+          video.currentTime = 0;
+          renderClips(job);
+        } else {
+          showToast(result.detail || "Export failed. Check backend logs.");
+        }
+      } catch (err) {
+        showToast(`Export error: ${err.message}`);
+      } finally {
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Export with 1:1 Headless Parity</span>`;
+      }
+    };
+  }
+
+  // Open modal
+  modal.hidden = false;
+  modal.classList.add("open");
+  document.body.style.overflow = "hidden";
+  setTimeout(renderStudioFrame, 50);
+}
+
+function renderStudioWordsList() {
+  const container = $("#studio-words-list");
+  if (!container || !activeStudio.timeline) return;
+
+  const words = activeStudio.timeline.words || [];
+  $("#studio-word-count").textContent = `${words.length} WORDS`;
+
+  if (words.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:20px;">No dialogue word tokens in this clip window.</div>`;
+    return;
+  }
+
+  container.innerHTML = words.map((w, idx) => `
+    <div class="studio-word-row" id="studio-word-row-${idx}" data-idx="${idx}">
+      <input type="text" class="studio-word-input" data-idx="${idx}" value="${escapeHtml(w.text || w.word || '')}">
+      <div class="time-nudge-group">
+        <button type="button" class="time-nudge-btn" data-idx="${idx}" data-field="start" data-delta="-50">−</button>
+        <span class="time-val" id="time-start-${idx}">${(w.start || (w.start_ms / 1000) || 0).toFixed(2)}s</span>
+        <button type="button" class="time-nudge-btn" data-idx="${idx}" data-field="start" data-delta="50">+</button>
+      </div>
+      <div class="time-nudge-group">
+        <button type="button" class="time-nudge-btn" data-idx="${idx}" data-field="end" data-delta="-50">−</button>
+        <span class="time-val" id="time-end-${idx}">${(w.end || (w.end_ms / 1000) || 0).toFixed(2)}s</span>
+        <button type="button" class="time-nudge-btn" data-idx="${idx}" data-field="end" data-delta="50">+</button>
+      </div>
+      <button type="button" class="highlight-toggle-btn ${w.highlight ? "highlighted" : ""}" data-idx="${idx}" title="Toggle Active Accent Pop">
+        ★
+      </button>
+    </div>
+  `).join("");
+
+  // Attach Word Input Change Listeners
+  container.querySelectorAll(".studio-word-input").forEach((inp) => {
+    inp.addEventListener("input", (e) => {
+      const idx = parseInt(inp.dataset.idx, 10);
+      const w = words[idx];
+      if (w) {
+        w.text = e.target.value;
+        w.word = e.target.value.replace(/[^a-zA-Z0-9']/g, "");
+        // Also sync phrase words
+        syncTimelinePhrases();
+        triggerStudioRedraw();
+      }
+    });
+  });
+
+  // Attach Timestamp Nudge Listeners
+  container.querySelectorAll(".time-nudge-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      const field = btn.dataset.field;
+      const delta = parseInt(btn.dataset.delta, 10);
+      const w = words[idx];
+      if (!w) return;
+
+      if (field === "start") {
+        const newStartMs = Math.max(0, (w.start_ms || Math.round(w.start * 1000)) + delta);
+        w.start_ms = newStartMs;
+        w.start = newStartMs / 1000;
+        $(`#time-start-${idx}`).textContent = `${w.start.toFixed(2)}s`;
+      } else if (field === "end") {
+        const newEndMs = Math.max((w.start_ms || 0) + 20, (w.end_ms || Math.round(w.end * 1000)) + delta);
+        w.end_ms = newEndMs;
+        w.end = newEndMs / 1000;
+        $(`#time-end-${idx}`).textContent = `${w.end.toFixed(2)}s`;
+      }
+      syncTimelinePhrases();
+      triggerStudioRedraw();
+    });
+  });
+
+  // Attach Highlight Toggle Listeners
+  container.querySelectorAll(".highlight-toggle-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      const w = words[idx];
+      if (w) {
+        w.highlight = !w.highlight;
+        btn.classList.toggle("highlighted", w.highlight);
+        syncTimelinePhrases();
+        triggerStudioRedraw();
+      }
+    });
+  });
+}
+
+function syncTimelinePhrases() {
+  if (!activeStudio.timeline) return;
+  const words = activeStudio.timeline.words || [];
+  // Re-sync phrases from updated words
+  const phrases = activeStudio.timeline.phrases || [];
+  if (phrases.length > 0) {
+    let wPtr = 0;
+    for (const p of phrases) {
+      const pWords = [];
+      for (let i = 0; i < p.word_count && wPtr < words.length; i++, wPtr++) {
+        pWords.push(words[wPtr]);
+      }
+      p.words = pWords;
+      if (pWords.length > 0) {
+        p.start = pWords[0].start;
+        p.end = pWords[pWords.length - 1].end;
+        p.start_ms = pWords[0].start_ms;
+        p.end_ms = pWords[pWords.length - 1].end_ms;
+        p.text = pWords.map((x) => x.text).join(" ");
+      }
+    }
+  }
+}
+
+function triggerStudioRedraw() {
+  const video = $("#studio-video");
+  const canvas = $("#studio-overlay-canvas");
+  if (!video || !canvas || !activeStudio.timeline) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width || 1080;
+  const h = canvas.height || 1920;
+  if (window.CaptionCanvasRenderer) {
+    window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, video.currentTime || 0, w, h);
+  }
+}
+
+function highlightActiveWordRow(activeIdx) {
+  if (activeIdx === activeStudio.activeWordIdx) return;
+  activeStudio.activeWordIdx = activeIdx;
+  $$(".studio-word-row").forEach((row) => row.classList.remove("active-speaking"));
+  if (activeIdx >= 0) {
+    const row = $(`#studio-word-row-${activeIdx}`);
+    if (row) {
+      row.classList.add("active-speaking");
+      row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+}
+
+function closeCaptionStudio() {
+  const modal = $("#caption-studio-modal");
+  if (modal) {
+    modal.classList.remove("open");
+    setTimeout(() => { modal.hidden = true; }, 200);
+    document.body.style.overflow = "";
+  }
+  for (const cleanup of activeStudio.cleanups) {
+    try { cleanup(); } catch {}
+  }
+  activeStudio.cleanups = [];
+  if (activeStudio.rafId) {
+    cancelAnimationFrame(activeStudio.rafId);
+    activeStudio.rafId = null;
+  }
+}
+
+const closeStudioBtn = $("#close-caption-studio-btn");
+if (closeStudioBtn) closeStudioBtn.addEventListener("click", closeCaptionStudio);
+
+const studioModal = $("#caption-studio-modal");
+if (studioModal) {
+  studioModal.addEventListener("click", (e) => {
+    if (e.target === studioModal) closeCaptionStudio();
+  });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && studioModal && !studioModal.hidden) {
+    closeCaptionStudio();
+  }
+});

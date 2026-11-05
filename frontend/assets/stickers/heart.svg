@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF1744"/>
+      <stop offset="100%" stop-color="#D50000"/>
+    </linearGradient>
+  </defs>
+  <!-- Die Cut Heart -->
+  <path d="M64 112 C64 112 20 84 20 48 C20 28 36 16 52 16 C60 16 64 24 64 24 C64 24 68 16 76 16 C92 16 108 28 108 48 C108 84 64 112 64 112 Z"
+        fill="url(#heartGrad)" stroke="#FFFFFF" stroke-width="8" stroke-linejoin="round"/>
+  <!-- Sheen Glint -->
+  <ellipse cx="44" cy="36" rx="8" ry="14" transform="rotate(-30 44 36)" fill="#FFFFFF" opacity="0.45"/>
+</svg>

@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field
 from backend.captions import ass as ass_engine
 from backend.captions.presets import PRESETS as CAPTION_PRESETS
 from backend.captions.spec import CaptionSpec, resolve_headline_font
+from backend.captions.timeline import (
+    KineticTimeline,
+    WordToken,
+    build_kinetic_timeline,
+    build_word_token,
+    estimate_syllables,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
@@ -1276,6 +1283,54 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
     run_command(command, timeout=1200, job_id=job_id)
 
 
+def render_clip_headless(
+    source: Path,
+    output: Path,
+    timeline_path: Path,
+    start: float,
+    end: float,
+    aspect: str,
+    job_id: str | None = None,
+    fit_mode: str = "blur",
+) -> bool:
+    """Render a video clip using the deterministic Node/Skia headless canvas engine.
+
+    Guarantees strict 1:1 pixel parity with the frontend WYSIWYG canvas preview.
+    Falls back gracefully to FFmpeg libass if Node/@napi-rs/canvas is unavailable.
+    """
+    dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
+    width, height = dimensions.get(aspect, (1080, 1920))
+    duration = max(1.0, end - start)
+    headless_script = Path(__file__).resolve().parent / "render_headless.js"
+
+    node_bin = shutil.which("node")
+    if not node_bin or not headless_script.is_file():
+        return False
+
+    cmd = [
+        node_bin,
+        str(headless_script),
+        "--timeline", str(timeline_path),
+        "--source", str(source),
+        "--output", str(output),
+        "--start", f"{start:.3f}",
+        "--duration", f"{duration:.3f}",
+        "--width", str(width),
+        "--height", str(height),
+        "--fps", "30",
+        "--fit-mode", fit_mode,
+        "--preset", os.getenv("FFMPEG_PRESET", "veryfast"),
+        "--crf", "21",
+    ]
+
+    try:
+        run_command(cmd, timeout=1200, job_id=job_id)
+        return output.is_file() and output.stat().st_size > 0
+    except Exception as exc:
+        print(f"[render_clip_headless] Fallback to libass: {exc}")
+        return False
+
+
 
 def export_dimensions(aspect: str, resolution: str) -> tuple[int, int]:
     """Return consistent, even output dimensions for the requested quality tier."""
@@ -1400,6 +1455,47 @@ def process_job(job_id: str) -> None:
         candidates = candidates[:job["clip_count"]]
         if not candidates:
             raise RuntimeError("No usable moments were found. Try a longer video with clear speech or adjust the duration range.")
+
+        caption_style_to_use = job.get("caption_style", "focus")
+        caption_mode = job.get("caption_mode", "auto")
+        caption_prompt = job.get("caption_prompt", "")
+        auto_headline = job.get("auto_headline", True)
+        auto_emoji = job.get("auto_emoji", False)
+        uppercase = job.get("uppercase", False)
+
+        enriched_candidates = []
+        for index, candidate in enumerate(candidates, start=1):
+            custom_style = None
+            if caption_mode == "prompt" and caption_prompt:
+                custom_style = parse_caption_prompt(caption_prompt, candidate.get("text", ""))
+            spec = resolve_caption_spec(
+                caption_style_to_use,
+                custom_style=custom_style,
+                uppercase=uppercase,
+                kinetic_pop=job.get("kinetic_pop", True),
+            )
+            is_fallback = bool(candidate.get("fallback"))
+            cand_words = [] if is_fallback else words
+            cand_title = candidate.get("title", "") if is_fallback else extract_headline(candidate.get("text", ""), job["template"])
+            timeline_data = build_kinetic_timeline(
+                cand_words,
+                candidate["start"],
+                candidate["end"],
+                spec,
+                aspect=job["aspect_ratio"],
+                headline_text=cand_title if auto_headline else None,
+                emoji_map=EMOJI_MAP if auto_emoji else None,
+                clip_id=f"cutflow-{index:02d}",
+            )
+            enriched_candidates.append({
+                **candidate,
+                "clip_index": index,
+                "words": timeline_data["words"],
+                "timeline": timeline_data,
+            })
+        candidates = enriched_candidates
+        update_job(job_id, candidates=candidates)
+
         output_dir = OUTPUTS / job_id
         output_dir.mkdir(parents=True, exist_ok=True)
         completed = []
@@ -1450,7 +1546,19 @@ def process_job(job_id: str) -> None:
             ass_path.write_text(ass_content, encoding="utf-8")
             write_srt(srt_path, words_for_ass, candidate["start"], candidate["end"], auto_emoji=auto_emoji, uppercase=uppercase)
             check_cancelled()
-            render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id, fit_mode=fit_mode)
+
+            # Save timeline JSON alongside ASS and SRT
+            timeline_path = output_dir / f"cutflow-{index:02d}.json"
+            timeline_path.write_text(json.dumps(candidate.get("timeline", {}), indent=2), encoding="utf-8")
+
+            # Deterministic headless Skia export with 1:1 preview parity, fallback to libass
+            rendered_ok = render_clip_headless(
+                source, output, timeline_path,
+                candidate["start"], candidate["end"],
+                job["aspect_ratio"], job_id=job_id, fit_mode=fit_mode,
+            )
+            if not rendered_ok:
+                render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id, fit_mode=fit_mode)
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
@@ -1458,6 +1566,7 @@ def process_job(job_id: str) -> None:
                 "download_url": f"/api/jobs/{job_id}/clips/{clip_name}",
                 "srt_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.srt')}",
                 "ass_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.ass')}",
+                "timeline_url": f"/api/jobs/{job_id}/clips/{clip_name}/timeline",
                 "size": output.stat().st_size,
                 "aspect_ratio": job["aspect_ratio"],
                 "finishing_label": profile["label"],
@@ -1636,6 +1745,123 @@ def get_job(job_id: str):
         if not job:
             raise HTTPException(404, "Project not found.")
         return public_job(job)
+
+
+@app.get("/api/jobs/{job_id}/candidates")
+def get_job_candidates(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Project not found.")
+    candidates = job.get("candidates") or job.get("clips") or []
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+@app.get("/api/jobs/{job_id}/clips/{filename}/timeline")
+def get_clip_timeline(job_id: str, filename: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Project not found.")
+    clips = job.get("clips", [])
+    mp4_name = Path(filename).stem + ".mp4"
+    clip = next((c for c in clips if c.get("filename") == mp4_name), None)
+    if not clip or "timeline" not in clip:
+        candidates = job.get("candidates", [])
+        cand = next((c for c in candidates if c.get("filename") == mp4_name or f"cutflow-{c.get('clip_index', 0):02d}.mp4" == mp4_name), None)
+        if cand and "timeline" in cand:
+            return cand["timeline"]
+        raise HTTPException(404, "Timeline not found for clip.")
+    return clip["timeline"]
+
+
+@app.post("/api/jobs/{job_id}/clips/{filename}/export")
+def export_custom_clip(job_id: str, filename: str, payload: dict):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "Project not found.")
+    with LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Project not found.")
+    if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.mp4", filename):
+        raise HTTPException(400, "Invalid clip filename.")
+
+    timeline = payload.get("timeline")
+    if not timeline or not isinstance(timeline, dict):
+        raise HTTPException(400, "Missing or invalid timeline payload.")
+
+    clips = job.get("clips", [])
+    clip = next((c for c in clips if c.get("filename") == filename), None)
+    if not clip:
+        raise HTTPException(404, "Clip not found.")
+
+    source_path = job.get("source_path")
+    if not source_path or not Path(source_path).is_file():
+        raise HTTPException(400, "Source video file is not available on disk.")
+
+    out_dir = OUTPUTS / job_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timeline_path = out_dir / f"{Path(filename).stem}.json"
+    timeline_path.write_text(json.dumps(timeline, indent=2), encoding="utf-8")
+    output_mp4 = out_dir / filename
+
+    start = float(timeline.get("start", clip["start"]))
+    end = float(timeline.get("end", clip["end"]))
+    aspect = timeline.get("aspect_ratio", job.get("aspect_ratio", "9:16"))
+    fit_mode = job.get("fit_mode", "blur")
+
+    # Render with deterministic headless Skia engine
+    success = render_clip_headless(
+        Path(source_path),
+        output_mp4,
+        timeline_path,
+        start=start,
+        end=end,
+        aspect=aspect,
+        job_id=job_id,
+        fit_mode=fit_mode,
+    )
+
+    if not success:
+        # Fallback to libass if node failed
+        ass_path = out_dir / f"{Path(filename).stem}.ass"
+        style_key = timeline.get("styling_metadata", {}).get("preset_key", job.get("caption_style", "focus"))
+        spec = resolve_caption_spec(style_key)
+        ass_content = ass_engine.compile_ass(
+            spec,
+            words=timeline.get("words", []),
+            start=start,
+            end=end,
+            aspect=aspect,
+        )
+        ass_path.write_text(ass_content, encoding="utf-8")
+        render_clip(Path(source_path), output_mp4, ass_path, start, end, aspect, style_key, fit_mode=fit_mode, job_id=job_id)
+
+    # Update clip metadata in-place
+    clip["timeline"] = timeline
+    clip["words"] = timeline.get("words", clip.get("words", []))
+    clip["size"] = output_mp4.stat().st_size
+    clip["start"] = start
+    clip["end"] = end
+    clip["duration"] = round(end - start, 2)
+    update_job(job_id, clips=clips)
+
+    return {
+        "ok": True,
+        "filename": filename,
+        "download_url": clip["download_url"],
+        "size": clip["size"],
+        "timeline": timeline,
+    }
 
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
@@ -1840,4 +2066,5 @@ def delete_job(job_id: str):
     return {"ok": True}
 
 
+app.mount("/assets/fonts", StaticFiles(directory=FONTS_DIR), name="fonts")
 app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")

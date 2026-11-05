@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="skullGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#CFD8DC"/>
+    </linearGradient>
+  </defs>
+  <!-- Crossbones -->
+  <path d="M26 26 L102 102 M102 26 L26 102" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+  <path d="M26 26 L102 102 M102 26 L26 102" stroke="#B0BEC5" stroke-width="8" stroke-linecap="round"/>
+  <!-- Skull Cranium -->
+  <path d="M38 60 C38 38 48 24 64 24 C80 24 90 38 90 60 C90 70 84 76 80 80 L80 94 L48 94 L48 80 C44 76 38 70 38 60 Z"
+        fill="url(#skullGrad)" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Eye Sockets & Nose -->
+  <circle cx="52" cy="56" r="9" fill="#263238"/>
+  <circle cx="76" cy="56" r="9" fill="#263238"/>
+  <polygon points="64,68 60,76 68,76" fill="#263238"/>
+  <!-- Teeth -->
+  <path d="M56 86 L56 94 M64 86 L64 94 M72 86 L72 94" stroke="#263238" stroke-width="3" stroke-linecap="round"/>
+</svg>

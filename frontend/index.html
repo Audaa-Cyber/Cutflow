@@ -700,7 +700,82 @@
     </div>
   </div>
 
+  <!-- WYSIWYG Interactive Caption Studio Modal (Phase 2) -->
+  <div class="caption-modal-backdrop" id="caption-studio-modal" role="dialog" aria-modal="true" aria-labelledby="studio-heading" hidden>
+    <div class="studio-modal-container">
+      <div class="caption-modal-header">
+        <div class="caption-modal-title">
+          <h3 id="studio-heading">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--lime);"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            WYSIWYG Caption Studio · Live Parity Editor
+          </h3>
+          <p>Real-time interactive canvas preview. Edit words, nudge sub-millisecond timestamps, or switch presets with zero-latency feedback.</p>
+        </div>
+        <button type="button" class="caption-modal-close" id="close-caption-studio-btn" aria-label="Close caption studio">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="studio-body-layout">
+        <!-- Left: Interactive Video Viewport with Canvas Overlay -->
+        <div class="studio-viewport-pane">
+          <div class="studio-viewport-wrapper" id="studio-viewport-wrapper">
+            <video id="studio-video" preload="auto" playsinline></video>
+            <canvas id="studio-overlay-canvas"></canvas>
+            <div class="studio-viewport-badge">
+              <span class="clip-badge-dot"></span>
+              <span id="studio-sync-rate">60 FPS · SKIA 1:1 PARITY</span>
+            </div>
+          </div>
+          <div class="studio-transport-bar">
+            <button type="button" class="studio-play-btn" id="studio-play-btn" aria-label="Play/Pause">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" id="studio-play-icon"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <input type="range" class="studio-scrubber" id="studio-scrubber" min="0" max="100" step="0.01" value="0">
+            <span class="studio-time-display" id="studio-time-display">00:00.00 / 00:00.00</span>
+          </div>
+        </div>
+
+        <!-- Right: Word-by-Word Timing Editor & Preset Controls -->
+        <div class="studio-controls-pane">
+          <div class="studio-pane-section">
+            <div class="studio-section-header">
+              <span class="mini-label">ACTIVE STYLE PRESET</span>
+              <span class="badge-count" id="studio-active-preset-badge">FOCUS</span>
+            </div>
+            <div class="studio-presets-scroller" id="studio-presets-scroller">
+              <!-- Dynamically populated preset chips -->
+            </div>
+          </div>
+
+          <div class="studio-pane-section studio-words-section">
+            <div class="studio-section-header">
+              <span class="mini-label">WORD-BY-WORD TIMESTAMPS & TEXT</span>
+              <span class="studio-word-count" id="studio-word-count">0 WORDS</span>
+            </div>
+            <div class="studio-words-list" id="studio-words-list">
+              <!-- Word rows with inline text edit & nudge buttons -->
+            </div>
+          </div>
+
+          <div class="studio-pane-footer">
+            <button type="button" class="create-button studio-export-btn" id="studio-export-btn">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Export with 1:1 Headless Parity</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=2.7"></script>
+  <script src="/font_loader.js"></script>
+  <script src="/kinetic_motion.js"></script>
+  <script src="/sticker_compositor.js"></script>
+  <script src="/virtual_camera.js"></script>
+  <script src="/sfx_mixer.js"></script>
+  <script src="/caption_canvas.js"></script>
+  <script src="/app.js?v=2.8"></script>
 </body>
 </html>

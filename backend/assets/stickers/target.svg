@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Outer Red Ring -->
+  <circle cx="64" cy="64" r="52" fill="#FF1744" stroke="#FFFFFF" stroke-width="7"/>
+  <!-- Middle White Ring -->
+  <circle cx="64" cy="64" r="38" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="2"/>
+  <!-- Inner Red Ring -->
+  <circle cx="64" cy="64" r="24" fill="#FF1744"/>
+  <!-- Bullseye Center -->
+  <circle cx="64" cy="64" r="10" fill="#FFD600" stroke="#FFFFFF" stroke-width="3"/>
+</svg>

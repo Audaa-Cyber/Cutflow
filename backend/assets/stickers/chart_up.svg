@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="trendGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E676"/>
+      <stop offset="100%" stop-color="#00B0FF"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Badge -->
+  <rect x="14" y="14" width="100" height="100" rx="22" fill="#111B24" stroke="#FFFFFF" stroke-width="6"/>
+  <!-- Ascending Green Bars -->
+  <rect x="28" y="74" width="12" height="26" rx="3" fill="#00E676" opacity="0.6"/>
+  <rect x="46" y="60" width="12" height="40" rx="3" fill="#00E676" opacity="0.8"/>
+  <rect x="64" y="44" width="12" height="56" rx="3" fill="#00E676"/>
+  <rect x="82" y="30" width="12" height="70" rx="3" fill="#00E676"/>
+  <!-- Trend Arrow -->
+  <polyline points="28,68 48,52 68,40 92,24" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="96,22 84,22 96,34" fill="#FFFFFF"/>
+</svg>

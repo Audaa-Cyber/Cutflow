@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="warnGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFE600"/>
+      <stop offset="100%" stop-color="#FF9100"/>
+    </linearGradient>
+  </defs>
+  <!-- Warning Triangle Shield -->
+  <polygon points="64,16 116,104 12,104"
+           fill="url(#warnGrad)" stroke="#FFFFFF" stroke-width="8" stroke-linejoin="round"/>
+  <!-- Inner Exclamation Mark -->
+  <path d="M64 42 L64 74" stroke="#101010" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="64" cy="88" r="5.5" fill="#101010"/>
+</svg>

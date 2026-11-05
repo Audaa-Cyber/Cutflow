@@ -8,3 +8,4 @@ data/
 *.ass
 *.srt
 .DS_Store
+node_modules/
