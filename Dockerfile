@@ -20,4 +20,4 @@ COPY README.md /app/README.md
 
 RUN mkdir -p /app/data/uploads /app/data/outputs
 EXPOSE 8000
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD uvicorn backend.app:app --host 0.0.0.0 --port "${PORT:-8000}"
