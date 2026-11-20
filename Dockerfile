@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --upgrade pip && pip install -r /app/backend/requirements.txt
+RUN pip install --upgrade pip && pip install -r /app/backend/requirements.txt && \
+    # Always install the latest yt-dlp so YouTube extractor patches are current
+    pip install --upgrade yt-dlp
 
 COPY backend /app/backend
 COPY frontend /app/frontend

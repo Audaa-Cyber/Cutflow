@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from functools import lru_cache
 import os
 import re
@@ -18,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -35,12 +36,69 @@ from backend.captions.timeline import (
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-DATA = Path(os.getenv("CUTFLOW_DATA_DIR", ROOT / "data"))
+# On Vercel container the image filesystem is read-only except /tmp;
+# fall back gracefully so local dev still uses the project data dir.
+_default_data = "/tmp/cutflow" if os.path.isdir("/tmp") and not os.access(str(ROOT / "data"), os.W_OK) else str(ROOT / "data")
+DATA = Path(os.getenv("CUTFLOW_DATA_DIR", _default_data))
 UPLOADS = DATA / "uploads"
 OUTPUTS = DATA / "outputs"
 FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
 for directory in (UPLOADS, OUTPUTS, FRONTEND, FONTS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Vercel Blob — optional cloud storage for uploads and rendered outputs.
+# Active when BLOB_READ_WRITE_TOKEN is set (Vercel sets it automatically
+# after `vercel storage create blob` or via the Marketplace).
+# ---------------------------------------------------------------------------
+BLOB_TOKEN = os.getenv("BLOB_READ_WRITE_TOKEN", "")
+_blob_sync = None
+if BLOB_TOKEN:
+    try:
+        from vercel.blob import sync as _blob_sync  # type: ignore
+    except ImportError:
+        _blob_sync = None
+
+
+def blob_enabled() -> bool:
+    return bool(BLOB_TOKEN and _blob_sync is not None)
+
+
+def blob_upload(local_path: Path, remote_pathname: str) -> str:
+    """Upload a local file to Vercel Blob and return its public URL."""
+    result = _blob_sync.put_blob(remote_pathname, local_path.read_bytes(), access="public")
+    return result.url
+
+
+def blob_download(url_or_pathname: str, dest: Path) -> None:
+    """Download a Blob URL/pathname to a local path."""
+    result = _blob_sync.get_blob(url_or_pathname, access="public")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(result.body)
+
+
+def blob_delete(url_or_pathname: str) -> None:
+    try:
+        _blob_sync.delete_blob(url_or_pathname)
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
+# YouTube cookies — write YOUTUBE_COOKIES env-var content to a temp file so
+# yt-dlp can authenticate and bypass bot-detection on datacenter IPs.
+# ---------------------------------------------------------------------------
+_YT_COOKIES_PATH: Path | None = None
+
+def _setup_yt_cookies() -> Path | None:
+    """Write YOUTUBE_COOKIES env var (Netscape cookies.txt format) to a temp file."""
+    cookies_content = os.getenv("YOUTUBE_COOKIES", "").strip()
+    if not cookies_content:
+        return None
+    tmp = Path(tempfile.gettempdir()) / "cutflow_yt_cookies.txt"
+    tmp.write_text(cookies_content, encoding="utf-8")
+    return tmp
+
+_YT_COOKIES_PATH = _setup_yt_cookies()
 
 
 def ensure_ffmpeg_path():
@@ -365,7 +423,7 @@ def download_source(url: str, job_id: str) -> Path:
         raise RuntimeError("URL importing needs yt-dlp. Install the project requirements and restart.") from exc
     destination = UPLOADS / job_id
     destination.mkdir(parents=True, exist_ok=True)
-    options = {
+    options: dict = {
         "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         "merge_output_format": "mp4",
         "outtmpl": str(destination / "source.%(ext)s"),
@@ -374,8 +432,18 @@ def download_source(url: str, job_id: str) -> Path:
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
-        "retries": 2,
+        "retries": 3,
     }
+    # Pass authenticated cookies when available to bypass YouTube bot detection
+    # on datacenter/cloud IPs. Set YOUTUBE_COOKIES in Vercel env vars with the
+    # contents of a cookies.txt (Netscape format) exported from a logged-in browser.
+    if _YT_COOKIES_PATH and _YT_COOKIES_PATH.is_file():
+        options["cookiefile"] = str(_YT_COOKIES_PATH)
+    # Use the web_embedded client as primary — it is less aggressively filtered
+    # than the default innertube web client on server IPs and does not require
+    # a PO token for most videos. Falls back to the standard web client.
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}:
+        options["extractor_args"] = {"youtube": {"player_client": ["web_embedded", "web"]}}
     with yt_dlp.YoutubeDL(options) as ydl:
         ydl.extract_info(url, download=True)
     candidates = [p for p in destination.glob("source.*") if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS]
@@ -1371,14 +1439,25 @@ def process_job(job_id: str) -> None:
             raise JobCancelledException("Processing was cancelled by user.")
 
     source: Path | None = None
+    _tmp_source: Path | None = None  # temp local copy when source lives in Blob
     try:
         check_cancelled()
         update_job(job_id, status="processing", progress=4, stage="Preparing video", message="Checking the source video.")
         if job.get("source_url"):
             source = download_source(job["source_url"], job_id)
         else:
-            source = Path(job["source_path"])
-        if not source.exists():
+            source_path_str = job.get("source_path", "")
+            if source_path_str.startswith("blob:"):
+                # Source was stored in Vercel Blob — download to /tmp for ffmpeg/whisper
+                blob_url = source_path_str[len("blob:"):]
+                _tmp_source = UPLOADS / job_id / "source_tmp.mp4"
+                _tmp_source.parent.mkdir(parents=True, exist_ok=True)
+                update_job(job_id, progress=5, stage="Preparing video", message="Fetching video from cloud storage…")
+                blob_download(blob_url, _tmp_source)
+                source = _tmp_source
+            else:
+                source = Path(source_path_str)
+        if not source or not source.exists():
             raise RuntimeError("The source video could not be found.")
         check_cancelled()
         metadata = probe_video(source)
@@ -1559,11 +1638,17 @@ def process_job(job_id: str) -> None:
             )
             if not rendered_ok:
                 render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id, fit_mode=fit_mode)
+            # If Blob is available, push the rendered clip there so any container
+            # instance can serve it, and record the Blob URL as the download URL.
+            download_url = f"/api/jobs/{job_id}/clips/{clip_name}"
+            if blob_enabled() and output.is_file():
+                blob_url = blob_upload(output, f"cutflow/{job_id}/{clip_name}")
+                download_url = blob_url
             completed.append({
                 **candidate,
                 "id": str(uuid.uuid4()),
                 "filename": clip_name,
-                "download_url": f"/api/jobs/{job_id}/clips/{clip_name}",
+                "download_url": download_url,
                 "srt_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.srt')}",
                 "ass_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.ass')}",
                 "timeline_url": f"/api/jobs/{job_id}/clips/{clip_name}/timeline",
@@ -1587,6 +1672,12 @@ def process_job(job_id: str) -> None:
         CANCELLED_JOBS.discard(job_id)
         with LOCK:
             ACTIVE_PROCESSES.pop(job_id, None)
+        # Remove the temp local copy of a Blob-stored source to free container disk space
+        if _tmp_source and _tmp_source.exists():
+            try:
+                _tmp_source.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def create_job(
@@ -1704,10 +1795,21 @@ async def upload_job(
                 output.write(chunk)
     finally:
         await file.close()
+    # When Blob is configured, push the upload there so any container instance
+    # can retrieve it during processing. Store a "blob:<url>" sentinel in
+    # source_path so process_job knows to download it back from Blob.
+    source_path_for_job = str(destination)
+    if blob_enabled():
+        try:
+            blob_url = blob_upload(destination, f"cutflow/{job_id}/source{extension}")
+            source_path_for_job = f"blob:{blob_url}"
+            destination.unlink(missing_ok=True)  # free local disk
+        except Exception:
+            pass  # fall back to local path
     try:
         job = create_job(
             template, aspect_ratio, clip_count, min_duration, max_duration,
-            source_path=str(destination), edit_prompt=edit_prompt,
+            source_path=source_path_for_job, edit_prompt=edit_prompt,
             caption_style=caption_style, caption_mode=caption_mode,
             caption_prompt=caption_prompt, auto_headline=auto_headline,
             auto_emoji=auto_emoji, uppercase=uppercase, kinetic_pop=kinetic_pop,
@@ -1805,7 +1907,17 @@ def export_custom_clip(job_id: str, filename: str, payload: dict):
         raise HTTPException(404, "Clip not found.")
 
     source_path = job.get("source_path")
-    if not source_path or not Path(source_path).is_file():
+    if not source_path:
+        raise HTTPException(400, "Source video file is not available.")
+    # Resolve Blob-stored sources to a local temp path before re-rendering
+    if source_path.startswith("blob:"):
+        blob_url = source_path[len("blob:"):]
+        tmp_source = UPLOADS / job_id / "source_tmp.mp4"
+        tmp_source.parent.mkdir(parents=True, exist_ok=True)
+        if not tmp_source.exists():
+            blob_download(blob_url, tmp_source)
+        source_path = str(tmp_source)
+    if not Path(source_path).is_file():
         raise HTTPException(400, "Source video file is not available on disk.")
 
     out_dir = OUTPUTS / job_id
@@ -1875,6 +1987,18 @@ def download_clip(job_id: str, filename: str, resolution: str | None = Query(def
         raise HTTPException(400, "Invalid clip filename.")
     path = OUTPUTS / job_id / filename
     if not path.is_file():
+        # Check if the MP4 clip was pushed to Blob storage and serve from there
+        if filename.endswith(".mp4"):
+            with LOCK:
+                job = JOBS.get(job_id)
+            if job:
+                clip_data = next((c for c in job.get("clips", []) if c.get("filename") == filename), None)
+                if clip_data:
+                    clip_url = clip_data.get("download_url", "")
+                    if clip_url.startswith("https://") and "blob.vercel-storage.com" in clip_url:
+                        # Redirect to the Blob CDN URL directly
+                        from fastapi.responses import RedirectResponse
+                        return RedirectResponse(url=clip_url, status_code=302)
         if filename.endswith((".srt", ".ass")):
             with LOCK:
                 job = JOBS.get(job_id)

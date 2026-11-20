@@ -4,3 +4,4 @@ python-multipart>=0.0.9
 faster-whisper>=1.1.0
 yt-dlp>=2025.1.15
 Pillow>=10.0
+vercel-blob>=0.6.1
