@@ -1,0 +1,7 @@
+node_modules
+.next
+.git
+.vscode
+.idea
+dist
+build
