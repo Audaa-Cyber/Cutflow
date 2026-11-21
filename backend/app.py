@@ -56,6 +56,7 @@ for directory in (UPLOADS, OUTPUTS, FRONTEND, FONTS_DIR):
 # after `vercel storage create blob` or via the Marketplace).
 # ---------------------------------------------------------------------------
 BLOB_TOKEN = os.getenv("BLOB_READ_WRITE_TOKEN", "")
+BLOB_ACCESS = os.getenv("BLOB_ACCESS", "private")
 _blob_sync = None
 if BLOB_TOKEN:
     try:
@@ -69,16 +70,16 @@ def blob_enabled() -> bool:
 
 
 def blob_upload(local_path: Path, remote_pathname: str) -> str:
-    """Upload privately; only backend media endpoints expose the artifact."""
+    """Upload artifact to Vercel Blob using configured store access."""
     with local_path.open("rb") as body:
-        result = _blob_sync.put_blob(remote_pathname, body, access="private", content_length=local_path.stat().st_size)
+        result = _blob_sync.put_blob(remote_pathname, body, access=BLOB_ACCESS, content_length=local_path.stat().st_size)
     return result.url
 
 
 def blob_download(url_or_pathname: str, dest: Path) -> None:
     """Download a Blob URL/pathname to a local path."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with _blob_sync.stream_blob(url_or_pathname, access="private") as chunks, dest.open("wb") as output:
+    with _blob_sync.stream_blob(url_or_pathname, access=BLOB_ACCESS) as chunks, dest.open("wb") as output:
         for chunk in chunks:
             output.write(chunk)
 

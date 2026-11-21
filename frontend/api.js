@@ -28,7 +28,8 @@
     if (!path || typeof path !== 'string') throw new APIError('This media link is unavailable. Refresh the project and retry.');
     const base = baseUrl();
     const url = new URL(path.startsWith('/') ? base + path : path, base + '/');
-    if (url.origin !== new URL(base).origin || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    const isBlobStorage = url.hostname.endsWith('.vercel-storage.com');
+    if ((url.origin !== new URL(base).origin && !isBlobStorage) || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
       throw new APIError('The server returned a media link outside the configured backend. Refresh the project and retry.');
     }
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
