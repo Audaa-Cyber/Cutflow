@@ -34,7 +34,7 @@ function buildFrontend({ rootDir = path.resolve(__dirname, '..'), apiBase = proc
 }
 
 if (require.main === module) {
-  try { buildFrontend({ allowSameOrigin: process.env.VERCEL !== '1' }); }
+  try { buildFrontend({ allowSameOrigin: process.env.VERCEL !== '1' || process.env.ALLOW_SAME_ORIGIN === '1' || !process.env.CUTFLOW_API_URL }); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }
 
