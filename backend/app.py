@@ -463,22 +463,33 @@ def download_source(url: str, job_id: str) -> Path:
         if job_id in CANCELLED_JOBS:
             raise JobCancelledException("Processing was cancelled by user.") from exc
         is_yt = any(h in url.lower() for h in ("youtube.com", "youtu.be"))
-        curr_clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
-        if is_yt and curr_clients != ["android", "ios"]:
-            fallback_opts = dict(options)
-            f_args = dict(fallback_opts.get("extractor_args", {}))
-            f_args["youtube"] = dict(f_args.get("youtube", {}))
-            f_args["youtube"]["player_client"] = ["android", "ios"]
-            fallback_opts["extractor_args"] = f_args
-            try:
-                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                    ydl.extract_info(url, download=True)
-            except JobCancelledException:
-                raise
-            except Exception as retry_exc:
-                if job_id in CANCELLED_JOBS:
-                    raise JobCancelledException("Processing was cancelled by user.") from retry_exc
-                raise RuntimeError(safe_download_error(retry_exc)) from retry_exc
+        if is_yt:
+            # YouTube bot detection frequently flags cloud datacenter IPs on standard web clients.
+            # Try player client profiles in order: tv_embedded, android
+            last_exc = exc
+            fallback_profiles = [["tv_embedded"], ["android"]]
+            curr_clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
+            for client_list in fallback_profiles:
+                if curr_clients == client_list:
+                    continue
+                fallback_opts = dict(options)
+                f_args = dict(fallback_opts.get("extractor_args", {}))
+                f_args["youtube"] = dict(f_args.get("youtube", {}))
+                f_args["youtube"]["player_client"] = client_list
+                fallback_opts["extractor_args"] = f_args
+                try:
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                        ydl.extract_info(url, download=True)
+                    last_exc = None
+                    break
+                except JobCancelledException:
+                    raise
+                except Exception as retry_exc:
+                    if job_id in CANCELLED_JOBS:
+                        raise JobCancelledException("Processing was cancelled by user.") from retry_exc
+                    last_exc = retry_exc
+            if last_exc is not None:
+                raise RuntimeError(safe_download_error(last_exc)) from last_exc
         else:
             raise RuntimeError(safe_download_error(exc)) from exc
     candidates = [p for p in destination.glob("source.*") if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS]
