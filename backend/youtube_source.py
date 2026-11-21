@@ -75,7 +75,11 @@ def configured_cookie_file(data_directory: Path) -> Path | None:
             raise ValueError("The configured YouTube cookies file is unavailable on the video worker.")
         return prepare_cookie_file(data_directory, path.read_text(encoding="utf-8"))
     contents = os.getenv("YOUTUBE_COOKIES", "").strip()
-    return prepare_cookie_file(data_directory, contents) if contents else None
+    if not contents:
+        return None
+    if not any(line.strip() and not line.strip().startswith("#") for line in contents.splitlines()):
+        return None
+    return prepare_cookie_file(data_directory, contents)
 
 
 class QuietDownloadLogger:
