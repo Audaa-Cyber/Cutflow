@@ -4,11 +4,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from tests._isolation import isolate_storage
 from unittest.mock import patch
 
-TEST_DATA_DIR = tempfile.mkdtemp(prefix="cutflow-tests-")
-os.environ["CUTFLOW_DATA_DIR"] = TEST_DATA_DIR
-os.environ["CUTFLOW_DB_PATH"] = os.path.join(TEST_DATA_DIR, "cutflow-test.sqlite3")
+TEST_DATA_DIR = str(isolate_storage())
 os.environ["AI_BASE_URL"] = ""
 os.environ["AI_API_KEY"] = ""
 os.environ["OPENAI_BASE_URL"] = ""

@@ -292,6 +292,15 @@
       this.videoGainNode.gain.linearRampToValueAtTime(1.0, now + 0.08);
     }
 
+    suspend() {
+      this.unduck();
+      this.syncTimeline(null);
+      this.resetTracking();
+      if (this.audioCtx && this.audioCtx.state === 'running') {
+        this.audioCtx.suspend().catch(() => {});
+      }
+    }
+
     dispose() {
       if (this.audioCtx && this.audioCtx.state !== 'closed') {
         this.audioCtx.close();

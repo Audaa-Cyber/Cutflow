@@ -1,0 +1,24 @@
+services:
+  cutflow:
+    # Only the supplied Caddy service and loopback can reach this backend port.
+    # Caddy replaces forwarded client headers before sending them upstream.
+    command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "30"]
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CUTFLOW_API_HOST: ${CUTFLOW_API_HOST:?Set the DNS hostname of the backend server}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      cutflow:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

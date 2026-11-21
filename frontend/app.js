@@ -19,6 +19,11 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const api = window.CutflowAPI;
+const mediaUrl = (path, params) => api.mediaUrl(path, params);
+function showApiError(error, fallback) {
+  if (!error.stale) showToast(error.message || fallback || "The backend request failed. Please retry.");
+}
 const templateNames = {
   auto: "Smart Auto-Detect",
   podcast: "Podcast & conversation",
@@ -28,6 +33,101 @@ const templateNames = {
   gaming: "Gaming highlights",
   music: "Music & performance",
 };
+
+let authMode = "login";
+function showAuth() {
+  const modal = $("#auth-modal");
+  if (modal) { modal.hidden = false; modal.classList.add("open"); }
+  $("#auth-email")?.focus();
+}
+function updateAuthUI() {
+  const session = api.getSession();
+  const modal = $("#auth-modal");
+  if (modal) {modal.hidden = Boolean(session); modal.classList.toggle("open", !session);}
+  const shell = $(".app-shell");
+  if (shell) shell.inert = !session;
+  const email = $("#account-email");
+  if (email) email.textContent = session?.user.email || "";
+  const logout = $("#logout-button");
+  if (logout) logout.hidden = !session;
+}
+function resetAccountState() {
+  clearTimeout(state.pollTimer);
+  state.pollTimer = null;
+  state.jobs = [];
+  state.activeJobId = null;
+  state.file = null;
+  closeCaptionStudio();
+  activeStudio.clip = null;
+  activeStudio.job = null;
+  activeStudio.timeline = null;
+  activeStudio.activeWordIdx = -1;
+  for (const selector of ["#clips-grid", "#processing-list", "#projects-list", "#studio-words-list"]) {
+    const node = $(selector); if (node) node.innerHTML = "";
+  }
+  $("#active-processing").hidden = true;
+  $("#latest-results").hidden = true;
+  $("#project-count").textContent = "0";
+  $("#video-file").value = "";
+  $("#video-url").value = "";
+  $("#upload-title").textContent = "Drop your video here";
+  $("#upload-subtitle").textContent = "MP4, MOV, MKV or WEBM · up to 1 GB";
+  $("#upload-subtitle").style.color = "";
+  $("#dropzone").classList.remove("has-file");
+  $("#upload-progress").hidden = true;
+  const video = $("#studio-video");
+  if (video) {video.removeAttribute("src"); video.load();}
+  const canvas = $("#studio-overlay-canvas");
+  canvas?.getContext("2d")?.clearRect?.(0, 0, canvas.width, canvas.height);
+  $("#auth-password").value = "";
+  updateAuthUI();
+}
+document.addEventListener("cutflow:sessionchanged", resetAccountState);
+function setAuthMode(mode) {
+  authMode = mode;
+  $("#auth-submit").textContent = mode === "register" ? "Create account" : "Sign in";
+  $("#auth-password").autocomplete = mode === "register" ? "new-password" : "current-password";
+  $("#auth-password").minLength = mode === "register" ? 8 : 1;
+  $("#auth-error").textContent = "";
+  $$("[data-auth-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.authMode === mode);
+    button.setAttribute("aria-pressed", String(button.dataset.authMode === mode));
+  });
+}
+async function submitAuth(event) {
+  event.preventDefault();
+  const button = $("#auth-submit");
+  button.disabled = true;
+  $("#auth-error").textContent = "";
+  try {
+    const session = await api.request(`/api/auth/${authMode}`, {
+      auth: false, method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: $("#auth-email").value.trim(), password: $("#auth-password").value}),
+    });
+    if (!session?.token || !session?.user?.id) throw new Error("The backend returned an invalid session. Please retry.");
+    api.setSession(session);
+    await refreshProjects();
+  } catch (error) { if (!error.stale) $("#auth-error").textContent = error.message; }
+  finally {button.disabled = false;}
+}
+async function logout() {
+  try {await api.request("/api/auth/logout", {method: "POST"});}
+  catch (error) {showApiError(error);}
+  finally {api.setSession(null); showAuth();}
+}
+async function restoreSession() {
+  updateAuthUI();
+  try {
+    api.baseUrl();
+    if (!api.getSession()) return;
+    const result = await api.request("/api/auth/me");
+    if (!result.user || result.user.id !== api.getSession()?.user.id) {api.setSession(null); return;}
+    await refreshProjects();
+  } catch (error) {
+    showApiError(error);
+    if (!error.stale) $("#auth-error").textContent = error.message;
+  }
+}
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -59,7 +159,7 @@ function switchView(view) {
 }
 function setSourceMode(mode) {
   state.sourceMode = mode;
-  $$(".source-tab").forEach((button) => button.classList.toggle("active", button.dataset.source === mode));
+  $$(".source-tab[data-source]").forEach((button) => button.classList.toggle("active", button.dataset.source === mode));
   $("#upload-panel").classList.toggle("active", mode === "upload");
   $("#link-panel").classList.toggle("active", mode === "link");
 }
@@ -104,6 +204,7 @@ function readSettings() {
   };
 }
 async function createProject() {
+  if (!api.getSession()) { showAuth(); showToast("Sign in to create a project."); return; }
   const settings = readSettings();
   if (!settings) return;
   if (state.sourceMode === "upload" && !state.file) {
@@ -118,29 +219,25 @@ async function createProject() {
   button.disabled = true;
   $("#create-button-label").textContent = "Starting your project…";
   try {
-    let response;
+    let data;
     if (state.sourceMode === "upload") {
       const form = new FormData();
       form.append("file", state.file);
       Object.entries(settings).forEach(([key, value]) => form.append(key, String(value)));
-      response = await fetch("/api/jobs/upload", { method: "POST", body: form });
+      $("#upload-progress").hidden = false;
+      data = await api.upload("/api/jobs/upload", form, (percent) => {
+        $("#upload-progress-bar").value = percent;
+        $("#upload-progress-label").textContent = `${percent}% uploaded`;
+        $("#create-button-label").textContent = percent < 100 ? `Uploading video · ${percent}%` : "Upload complete. Starting analysis…";
+      });
     } else {
-      response = await fetch("/api/jobs/url", {
+      data = await api.request("/api/jobs/url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...settings, source_url: $("#video-url").value.trim() }),
       });
     }
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!response.ok) {
-      let msg = "Server temporarily unavailable. Please retry.";
-      if (isJson) {
-        const err = await response.json().catch(() => ({}));
-        msg = err.detail || msg;
-      }
-      throw new Error(msg);
-    }
-    const data = isJson ? await response.json() : {};
+    if (!data || typeof data.id !== "string" || !data.status) throw new Error("The backend did not return a valid project. Please retry.");
     state.activeJobId = data.id;
     state.jobs = [data, ...state.jobs.filter((job) => job.id !== data.id)];
     $("#active-processing").hidden = false;
@@ -152,29 +249,17 @@ async function createProject() {
     pollJob(data.id);
     showToast("Project queued. Cutflow is starting the analysis.");
   } catch (error) {
-    showToast(error.message || "Something went wrong.");
+    showApiError(error);
   } finally {
     button.disabled = false;
     $("#create-button-label").textContent = "Find my best clips";
+    $("#upload-progress").hidden = true;
   }
 }
 async function pollJob(jobId) {
   clearTimeout(state.pollTimer);
   try {
-    const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
-    if (response.status === 404) {
-      // Job was deleted or history purged: stop polling immediately
-      state.activeJobId = null;
-      $("#active-processing").hidden = true;
-      return;
-    }
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!response.ok || !isJson) {
-      // Temporary network or tunnel latency: silently retry without crashing
-      state.pollTimer = setTimeout(() => pollJob(jobId), 3000);
-      return;
-    }
-    const job = await response.json();
+    const job = await api.request(`/api/jobs/${encodeURIComponent(jobId)}`);
     upsertJob(job);
     renderProcessing(job);
     if (job.status === "completed") {
@@ -192,7 +277,15 @@ async function pollJob(jobId) {
       return;
     }
     state.pollTimer = setTimeout(() => pollJob(jobId), 2200);
-  } catch {
+  } catch (error) {
+    if (error.stale || error.status === 401) return;
+    if (error.status === 404) {
+      state.activeJobId = null;
+      $("#active-processing").hidden = true;
+      showToast("This project is no longer available.");
+      return;
+    }
+    showApiError(error);
     state.pollTimer = setTimeout(() => pollJob(jobId), 4000);
   }
 }
@@ -320,7 +413,7 @@ function renderClips(job) {
     return `
     <article class="clip-card ${ratioClass}">
       <div class="clip-preview" style="aspect-ratio:${initialCssRatio};">
-        <video controls preload="metadata" playsinline src="${escapeHtml(clip.download_url)}"></video>
+        <video controls preload="metadata" playsinline crossorigin="anonymous" src="${escapeHtml(mediaUrl(clip.download_url))}"></video>
         <span class="clip-badge">
           <span class="clip-badge-dot"></span>
           <span class="clip-badge-ratio">${escapeHtml(defaultRatio)}</span>
@@ -354,15 +447,15 @@ function renderClips(job) {
               <option value="2k">2K</option>
             </select>
           </label>
-          <a class="download-button" href="${escapeHtml(clip.download_url)}?resolution=1080" download="${escapeHtml(clip.filename)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download 1080p</a>
+          <a class="download-button" data-download-kind="download" data-clip-index="${index}" href="${escapeHtml(mediaUrl(clip.download_url, {resolution: 1080}))}" download="${escapeHtml(clip.filename)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download 1080p</a>
         </div>
         <div class="subtitles-download-row">
           <span class="subtitles-label">SUBTITLES:</span>
-          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.srt'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.srt'))}">
+          <a class="sub-download-btn" data-download-kind="srt" data-clip-index="${index}" href="${escapeHtml(mediaUrl(clip.srt_url))}" download="${escapeHtml(clip.filename.replace('.mp4', '.srt'))}">
             <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             .SRT
           </a>
-          <a class="sub-download-btn" href="${escapeHtml(clip.download_url.replace('.mp4', '.ass'))}" download="${escapeHtml(clip.filename.replace('.mp4', '.ass'))}">
+          <a class="sub-download-btn" data-download-kind="ass" data-clip-index="${index}" href="${escapeHtml(mediaUrl(clip.ass_url))}" download="${escapeHtml(clip.filename.replace('.mp4', '.ass'))}">
             <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             .ASS (Karaoke)
           </a>
@@ -388,10 +481,15 @@ function renderClips(job) {
 
   // Attach WYSIWYG studio opener buttons
   grid.querySelectorAll(".wysiwyg-edit-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const clipIdx = parseInt(btn.dataset.clipIndex, 10);
       const clip = (job.clips || [])[clipIdx];
-      if (clip) openCaptionStudio(clip, job);
+      if (clip) {
+        btn.disabled = true;
+        try {await refreshClipMedia(clip, job); await openCaptionStudio(clip, job);}
+        catch (error) {showApiError(error, "Could not open Caption Studio.");}
+        finally {btn.disabled = false;}
+      }
     });
   });
 }
@@ -425,24 +523,36 @@ function renderProjects() {
     </article>`;
   }).join("");
 }
-async function refreshProjects() {
+async function refreshClipMedia(clip, job) {
+  const fresh = await api.request(`/api/jobs/${encodeURIComponent(job.id)}`);
+  const current = (fresh.clips || []).find((item) => item.filename === clip.filename);
+  if (!current) throw new Error("This clip is no longer available. Refresh your projects.");
+  for (const field of ["download_url", "preview_url", "srt_url", "ass_url", "timeline_url"]) {
+    if (current[field]) clip[field] = current[field];
+  }
+  return current;
+}
+async function downloadClip(clip, job, kind, resolution) {
   try {
-    const response = await fetch("/api/jobs");
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!response.ok || !isJson) return;
-    const jobs = await response.json();
-    jobs.forEach(upsertJob);
+    await refreshClipMedia(clip, job);
+    const path = kind === "srt" ? clip.srt_url : kind === "ass" ? clip.ass_url : clip.download_url;
+    window.location.assign(mediaUrl(path, kind === "download" ? {resolution: resolution || "1080"} : {}));
+  } catch (error) {showApiError(error, "Could not download this clip. Please retry.");}
+}
+async function refreshProjects() {
+  if (!api.getSession()) return;
+  try {
+    const jobs = await api.request("/api/jobs");
+    if (!Array.isArray(jobs)) throw new Error("The backend returned an invalid project list.");
+    state.jobs = jobs;
+    $("#project-count").textContent = jobs.length;
     renderProjects();
-  } catch {}
+  } catch (error) { showApiError(error); }
 }
 async function retryProject(id) {
   if (!id) return;
   try {
-    const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!isJson) { showToast("Server temporarily unavailable. Please retry."); return; }
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Could not reprocess project.");
+    const data = await api.request(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
     upsertJob(data);
     state.activeJobId = id;
     $("#active-processing").hidden = false;
@@ -453,17 +563,13 @@ async function retryProject(id) {
     showToast("Reprocessing clipping job with existing source file…");
     pollJob(id);
   } catch (error) {
-    showToast(error.message || "Failed to retry project.");
+    showApiError(error, "Failed to retry project.");
   }
 }
 async function cancelProject(id) {
   if (!id) return;
   try {
-    const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!isJson) { showToast("Server temporarily unavailable. Please retry."); return; }
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Could not cancel project.");
+    const data = await api.request(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
     upsertJob(data);
     renderProcessing(data);
     renderProjects();
@@ -480,15 +586,24 @@ async function cancelProject(id) {
     const fileInput = $("#video-file");
     if (fileInput) fileInput.value = "";
   } catch (error) {
-    showToast(error.message || "Failed to cancel project.");
+    showApiError(error, "Failed to cancel project.");
   }
+}
+function showDeletionResult(message, result) {
+  const failures = Number(result.cloud_cleanup_failures) || 0;
+  showToast(message + (failures > 0 ? ` ${failures} stored media files could not be removed.` : ""));
 }
 async function deleteProject(id) {
   if (!confirm("Delete this project and its generated clips? This cannot be undone.")) return;
   try {
-    const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (!response.ok) throw new Error("Could not delete this project.");
+    const data = await api.request(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     state.jobs = state.jobs.filter((job) => job.id !== id);
+    if (activeStudio.job?.id === id) {
+      closeCaptionStudio();
+      activeStudio.clip = null;
+      activeStudio.job = null;
+      activeStudio.timeline = null;
+    }
     if (state.activeJobId === id) {
       state.activeJobId = null;
       $("#active-processing").hidden = true;
@@ -496,28 +611,24 @@ async function deleteProject(id) {
     }
     $("#project-count").textContent = state.jobs.length;
     renderProjects();
-    showToast("Project deleted.");
-  } catch (error) { showToast(error.message); }
+    showDeletionResult("Project deleted.", data);
+  } catch (error) { showApiError(error); }
 }
 async function deleteAllProjects() {
   if (!confirm("Are you sure you want to delete all projects and generated clips? This cannot be undone.")) return;
   try {
-    const response = await fetch("/api/jobs", { method: "DELETE" });
-    const isJson = (response.headers.get("content-type") || "").includes("application/json");
-    if (!response.ok) {
-      let msg = "Could not delete all projects.";
-      if (isJson) {
-        const err = await response.json().catch(() => ({}));
-        msg = err.detail || msg;
-      }
-      throw new Error(msg);
-    }
-    const data = isJson ? await response.json() : {};
+    const data = await api.request("/api/jobs", { method: "DELETE" });
+    closeCaptionStudio();
+    activeStudio.clip = null;
+    activeStudio.job = null;
+    activeStudio.timeline = null;
     state.jobs = [];
     state.activeJobId = null;
     clearTimeout(state.pollTimer);
     $("#active-processing").hidden = true;
     $("#latest-results").hidden = true;
+    $("#clips-grid").innerHTML = "";
+    $("#processing-list").innerHTML = "";
     $("#project-count").textContent = "0";
     const button = $("#create-button");
     if (button) {
@@ -525,9 +636,9 @@ async function deleteAllProjects() {
       $("#create-button-label").textContent = "Find my best clips";
     }
     renderProjects();
-    showToast(`All projects deleted (${data.deleted_count ?? 0} removed).`);
+    showDeletionResult(`All projects deleted (${data.deleted_count ?? 0} removed).`, data);
   } catch (error) {
-    showToast(error.message || "Failed to delete projects.");
+    showApiError(error, "Failed to delete projects.");
   }
 }
 function dismissJob(id) {
@@ -545,9 +656,10 @@ function dismissJob(id) {
     $("#active-processing").hidden = true;
   }
 }
-function openProject(id) {
-  const job = state.jobs.find((item) => item.id === id);
-  if (!job) return;
+async function openProject(id) {
+  let job;
+  try {job = await api.request(`/api/jobs/${encodeURIComponent(id)}`); upsertJob(job);}
+  catch (error) {showApiError(error); return;}
   state.activeJobId = id;
   switchView("create");
   $("#active-processing").hidden = false;
@@ -557,13 +669,261 @@ function openProject(id) {
   else pollJob(id);
   $("#active-processing").scrollIntoView({ behavior: "smooth", block: "start" });
 }
+// Caption Style Names & Selection Sync (Phase 4 Archetypes)
+const captionStyleNames = {
+  hormozi: "Hormozi Punch · Komika Heavy Strike",
+  impact: "Impact II · Anton Massive Punch",
+  glow: "Cyberpunk · Syne Neon Bloom",
+  prime: "Prime · The Bold Font Viral Pop",
+  align: "Align · Bebas Neue Letterbox",
+  pop: "Pop · Bouncy Neon Kinetic",
+  paper: "Paper II · Polished Editorial Pill",
+  evo: "Evo · Frosted Glass Gradient Pill",
+  linen: "Linen · Editorial Serif Hook",
+  focus: "Focus · Inverted Dialogue Badge Boxes",
+  stack: "Stack · JetBrains Mono Brutalist Grid",
+  y2k: "Y2K · Cyberpunk Scanlines",
+  lift: "Lift · Curved Header Banner & Emerald Pop",
+  chalk: "Chalk · Tutorial Sketch Highlighter",
+  pulse: "Pulse Viral · Montserrat Dynamic Wave",
+  elevate: "Elevate · Luxury Minimal Aesthetic",
+  karaoke: "Dynamic Karaoke Pill · Lime Glider",
+  clean: "Clean · Subtitle Standard",
+};
+
+const PRESET_RECIPES = {
+  hormozi: {
+    font: "Komika Axis",
+    uppercase: true,
+    kinetic_mode: "pop",
+    tilt_deg: -2.5,
+    colors: { primary: "#ffffff", accent: "#ffe600", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 2.4, color: "#000000" },
+      inner_stroke: { width: 0.7, color: "#ffffff" },
+      active_gradient: ["#FFE600", "#FF8400"],
+      shadow: { blur: 6.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.90)" },
+    },
+    spring_physics: { tension: 300, friction: 13, mass: 1.0, scale_overshoot: 1.28, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  impact: {
+    font: "Anton",
+    uppercase: true,
+    kinetic_mode: "pop",
+    tilt_deg: 1.5,
+    colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 2.8, color: "#000000" },
+      active_gradient: ["#D5FF5F", "#A6FF00"],
+      shadow: { blur: 12.0, x: 0, y: 6.0, color: "rgba(0, 0, 0, 0.85)" },
+    },
+    spring_physics: { tension: 320, friction: 14, mass: 1.0, scale_overshoot: 1.30, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  glow: {
+    font: "Syne",
+    uppercase: true,
+    kinetic_mode: "wave",
+    colors: { primary: "#f0fdf4", accent: "#00f5d4", outline: "#0b0d13", upcoming: "#98a2b3", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 1.8, color: "#0B0D13" },
+      glow: { blur: 22.0, color: "#00F5D4" },
+      active_gradient: ["#B0FFEA", "#00F5D4"],
+      shadow: { blur: 8.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
+    },
+    spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  prime: {
+    font: "The Bold Font",
+    uppercase: true,
+    kinetic_mode: "pop",
+    colors: { primary: "#ffffff", accent: "#fff500", outline: "#10110f", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 2.2, color: "#10110F" },
+      active_gradient: ["#FFF500", "#FF6B6B"],
+      shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
+    },
+    spring_physics: { tension: 270, friction: 15, mass: 1.0, scale_overshoot: 1.22, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  align: {
+    font: "Bebas Neue",
+    uppercase: true,
+    kinetic_mode: "wave",
+    frame: "letterbox",
+    colors: { primary: "#ffffff", accent: "#fff3b0", outline: "#141414", upcoming: "#b4b4b4", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 1.2, color: "#141414" },
+      active_gradient: ["#FFF3B0", "#E09F3E"],
+    },
+    spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  pop: {
+    font: "The Bold Font",
+    uppercase: true,
+    kinetic_mode: "pop",
+    colors: { primary: "#ffffff", accent: "#ff007f", outline: "#120a1e", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 2.4, color: "#120A1E" },
+      inner_stroke: { width: 0.8, color: "#FF007F" },
+      glow: { blur: 16.0, color: "#FF007F" },
+      active_gradient: ["#FF007F", "#FFAA00"],
+    },
+    spring_physics: { tension: 290, friction: 14, mass: 1.0, scale_overshoot: 1.24, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  paper: {
+    font: "Merriweather",
+    uppercase: false,
+    kinetic_mode: "glider",
+    colors: { primary: "#120f0e", accent: "#2acbc7", outline: "#120f0e", upcoming: "#78716c", fill: "#f7ece7", fill_text: "#120f0e" },
+    shader_stack: {
+      shadow: { blur: 14.0, x: 0, y: 5.0, color: "rgba(0, 0, 0, 0.35)" },
+    },
+    spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
+    caption_box: "pill",
+  },
+  evo: {
+    font: "Montserrat",
+    uppercase: true,
+    kinetic_mode: "glider",
+    colors: { primary: "#ffffff", accent: "#00ffff", outline: "#161420", upcoming: "#a9a9a9", fill: "#221832", fill_text: "#ffffff" },
+    shader_stack: {
+      glow: { blur: 18.0, color: "#00FFFF" },
+      active_gradient: ["#D0FFFF", "#00FFFF"],
+    },
+    spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+    caption_box: "pill",
+  },
+  linen: {
+    font: "Merriweather",
+    uppercase: false,
+    kinetic_mode: "wave",
+    frame: "rules",
+    colors: { primary: "#f7f4ec", accent: "#00c4a8", outline: "#1e1c1a", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 0.8, color: "#1E1C1A" },
+      shadow: { blur: 5.0, x: 0, y: 2.0, color: "rgba(0, 0, 0, 0.50)" },
+    },
+    spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  focus: {
+    font: "Montserrat",
+    uppercase: true,
+    kinetic_mode: "pop",
+    colors: { primary: "#ffffff", accent: "#00ffff", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      shadow: { blur: 8.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.60)" },
+    },
+    spring_physics: { tension: 280, friction: 24, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
+    caption_box: "per_word",
+  },
+  stack: {
+    font: "JetBrains Mono",
+    uppercase: true,
+    kinetic_mode: "pop",
+    frame: "grid",
+    colors: { primary: "#ffffff", accent: "#00ffff", outline: "#000000", upcoming: "#777777", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 1.6, color: "#000000" },
+      active_gradient: ["#FAFF00", "#70FF00"],
+    },
+    spring_physics: { tension: 250, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  y2k: {
+    font: "JetBrains Mono",
+    uppercase: true,
+    kinetic_mode: "wave",
+    frame: "scanlines",
+    colors: { primary: "#ffffff", accent: "#ff007f", outline: "#000000", upcoming: "#777777", fill: "#ff007f", fill_text: "#ffffff" },
+    shader_stack: {
+      glow: { blur: 20.0, color: "#FF007F" },
+      active_gradient: ["#FF007F", "#FFAA00"],
+    },
+    spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  lift: {
+    font: "Bebas Neue",
+    uppercase: true,
+    kinetic_mode: "pop",
+    colors: { primary: "#ffffff", accent: "#05ffd5", outline: "#101812", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 1.8, color: "#101812" },
+      active_gradient: ["#B5FFEA", "#05FFD5"],
+    },
+    spring_physics: { tension: 260, friction: 16, mass: 1.0, scale_overshoot: 1.20, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  chalk: {
+    font: "Merriweather",
+    uppercase: false,
+    kinetic_mode: "wave",
+    frame: "rules",
+    colors: { primary: "#ffffff", accent: "#00d4fd", outline: "#141414", upcoming: "#999999", fill: "#00d4fd", fill_text: "#141414" },
+    shader_stack: {
+      shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.40)" },
+    },
+    spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  pulse: {
+    font: "Montserrat",
+    uppercase: true,
+    kinetic_mode: "wave",
+    colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#121410", upcoming: "#888888", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 2.0, color: "#121410" },
+      active_gradient: ["#C6FFED", "#66F4C6"],
+    },
+    spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  elevate: {
+    font: "Montserrat",
+    uppercase: true,
+    kinetic_mode: "wave",
+    frame: "rules",
+    colors: { primary: "#f2f2f2", accent: "#009c63", outline: "#101010", upcoming: "#666666", fill: "#ffffff", fill_text: "#000000" },
+    shader_stack: {
+      outer_stroke: { width: 0.5, color: "#101010" },
+    },
+    spring_physics: { tension: 200, friction: 20, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
+    caption_box: "none",
+  },
+  karaoke: {
+    font: "Montserrat",
+    uppercase: false,
+    kinetic_mode: "glider",
+    colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#181a14", upcoming: "#999999", fill: "#131a1b", fill_text: "#ffffff" },
+    spring_physics: { tension: 210, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
+    caption_box: "pill",
+  },
+  clean: {
+    font: "Montserrat",
+    uppercase: false,
+    kinetic_mode: "none",
+    colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
+    caption_box: "none",
+  },
+};
+
+
 function init() {
+  $("#auth-form")?.addEventListener("submit", submitAuth);
+  $("#logout-button")?.addEventListener("click", logout);
+  $$("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => setAuthMode(button.dataset.authMode)));
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   $$(".template-card").forEach((button) => button.addEventListener("click", () => {
     state.template = button.dataset.template;
     $$(".template-card").forEach((card) => card.classList.toggle("selected", card === button));
   }));
-  $$(".source-tab").forEach((button) => button.addEventListener("click", () => setSourceMode(button.dataset.source)));
+  $$(".source-tab[data-source]").forEach((button) => button.addEventListener("click", () => setSourceMode(button.dataset.source)));
   $$(".ratio-option").forEach((button) => button.addEventListener("click", () => {
     state.aspectRatio = button.dataset.ratio;
     $$(".ratio-option").forEach((item) => item.classList.toggle("selected", item === button));
@@ -584,254 +944,20 @@ function init() {
     const link = card.querySelector(".download-button");
     const originalName = select.dataset.filename;
     const stem = originalName.replace(/\.mp4$/i, "");
-    link.href = `${select.dataset.downloadUrl}?resolution=${encodeURIComponent(resolution)}`;
+    link.href = mediaUrl(select.dataset.downloadUrl, {resolution});
     link.download = resolution === "1080" ? originalName : `${stem}-${resolution}.mp4`;
     link.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ${resolution === "2k" ? "2K" : `${resolution}p`}`;
   });
-
-  // Caption Style Names & Selection Sync (Phase 4 Archetypes)
-  const captionStyleNames = {
-    hormozi: "Hormozi Punch · Komika Heavy Strike",
-    impact: "Impact II · Anton Massive Punch",
-    glow: "Cyberpunk · Syne Neon Bloom",
-    prime: "Prime · The Bold Font Viral Pop",
-    align: "Align · Bebas Neue Letterbox",
-    pop: "Pop · Bouncy Neon Kinetic",
-    paper: "Paper II · Polished Editorial Pill",
-    evo: "Evo · Frosted Glass Gradient Pill",
-    linen: "Linen · Editorial Serif Hook",
-    focus: "Focus · Inverted Dialogue Badge Boxes",
-    stack: "Stack · JetBrains Mono Brutalist Grid",
-    y2k: "Y2K · Cyberpunk Scanlines",
-    lift: "Lift · Curved Header Banner & Emerald Pop",
-    chalk: "Chalk · Tutorial Sketch Highlighter",
-    pulse: "Pulse Viral · Montserrat Dynamic Wave",
-    elevate: "Elevate · Luxury Minimal Aesthetic",
-    karaoke: "Dynamic Karaoke Pill · Lime Glider",
-    clean: "Clean · Subtitle Standard",
-  };
-
-  const PRESET_RECIPES = {
-    hormozi: {
-      font: "Komika Axis",
-      uppercase: true,
-      kinetic_mode: "pop",
-      tilt_deg: -2.5,
-      colors: { primary: "#ffffff", accent: "#ffe600", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 2.4, color: "#000000" },
-        inner_stroke: { width: 0.7, color: "#ffffff" },
-        active_gradient: ["#FFE600", "#FF8400"],
-        shadow: { blur: 6.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.90)" },
-      },
-      spring_physics: { tension: 300, friction: 13, mass: 1.0, scale_overshoot: 1.28, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    impact: {
-      font: "Anton",
-      uppercase: true,
-      kinetic_mode: "pop",
-      tilt_deg: 1.5,
-      colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#000000", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 2.8, color: "#000000" },
-        active_gradient: ["#D5FF5F", "#A6FF00"],
-        shadow: { blur: 12.0, x: 0, y: 6.0, color: "rgba(0, 0, 0, 0.85)" },
-      },
-      spring_physics: { tension: 320, friction: 14, mass: 1.0, scale_overshoot: 1.30, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    glow: {
-      font: "Syne",
-      uppercase: true,
-      kinetic_mode: "wave",
-      colors: { primary: "#f0fdf4", accent: "#00f5d4", outline: "#0b0d13", upcoming: "#98a2b3", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 1.8, color: "#0B0D13" },
-        glow: { blur: 22.0, color: "#00F5D4" },
-        active_gradient: ["#B0FFEA", "#00F5D4"],
-        shadow: { blur: 8.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
-      },
-      spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    prime: {
-      font: "The Bold Font",
-      uppercase: true,
-      kinetic_mode: "pop",
-      colors: { primary: "#ffffff", accent: "#fff500", outline: "#10110f", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 2.2, color: "#10110F" },
-        active_gradient: ["#FFF500", "#FF6B6B"],
-        shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.80)" },
-      },
-      spring_physics: { tension: 270, friction: 15, mass: 1.0, scale_overshoot: 1.22, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    align: {
-      font: "Bebas Neue",
-      uppercase: true,
-      kinetic_mode: "wave",
-      frame: "letterbox",
-      colors: { primary: "#ffffff", accent: "#fff3b0", outline: "#141414", upcoming: "#b4b4b4", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 1.2, color: "#141414" },
-        active_gradient: ["#FFF3B0", "#E09F3E"],
-      },
-      spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    pop: {
-      font: "The Bold Font",
-      uppercase: true,
-      kinetic_mode: "pop",
-      colors: { primary: "#ffffff", accent: "#ff007f", outline: "#120a1e", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 2.4, color: "#120A1E" },
-        inner_stroke: { width: 0.8, color: "#FF007F" },
-        glow: { blur: 16.0, color: "#FF007F" },
-        active_gradient: ["#FF007F", "#FFAA00"],
-      },
-      spring_physics: { tension: 290, friction: 14, mass: 1.0, scale_overshoot: 1.24, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    paper: {
-      font: "Merriweather",
-      uppercase: false,
-      kinetic_mode: "glider",
-      colors: { primary: "#120f0e", accent: "#2acbc7", outline: "#120f0e", upcoming: "#78716c", fill: "#f7ece7", fill_text: "#120f0e" },
-      shader_stack: {
-        shadow: { blur: 14.0, x: 0, y: 5.0, color: "rgba(0, 0, 0, 0.35)" },
-      },
-      spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
-      caption_box: "pill",
-    },
-    evo: {
-      font: "Montserrat",
-      uppercase: true,
-      kinetic_mode: "glider",
-      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#161420", upcoming: "#a9a9a9", fill: "#221832", fill_text: "#ffffff" },
-      shader_stack: {
-        glow: { blur: 18.0, color: "#00FFFF" },
-        active_gradient: ["#D0FFFF", "#00FFFF"],
-      },
-      spring_physics: { tension: 200, friction: 18, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
-      caption_box: "pill",
-    },
-    linen: {
-      font: "Merriweather",
-      uppercase: false,
-      kinetic_mode: "wave",
-      frame: "rules",
-      colors: { primary: "#f7f4ec", accent: "#00c4a8", outline: "#1e1c1a", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 0.8, color: "#1E1C1A" },
-        shadow: { blur: 5.0, x: 0, y: 2.0, color: "rgba(0, 0, 0, 0.50)" },
-      },
-      spring_physics: { tension: 210, friction: 19, mass: 1.0, scale_overshoot: 1.15, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    focus: {
-      font: "Montserrat",
-      uppercase: true,
-      kinetic_mode: "pop",
-      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        shadow: { blur: 8.0, x: 0, y: 4.0, color: "rgba(0, 0, 0, 0.60)" },
-      },
-      spring_physics: { tension: 280, friction: 24, mass: 1.0, scale_overshoot: 1.18, slide_y_px: 8 },
-      caption_box: "per_word",
-    },
-    stack: {
-      font: "JetBrains Mono",
-      uppercase: true,
-      kinetic_mode: "pop",
-      frame: "grid",
-      colors: { primary: "#ffffff", accent: "#00ffff", outline: "#000000", upcoming: "#777777", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 1.6, color: "#000000" },
-        active_gradient: ["#FAFF00", "#70FF00"],
-      },
-      spring_physics: { tension: 250, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    y2k: {
-      font: "JetBrains Mono",
-      uppercase: true,
-      kinetic_mode: "wave",
-      frame: "scanlines",
-      colors: { primary: "#ffffff", accent: "#ff007f", outline: "#000000", upcoming: "#777777", fill: "#ff007f", fill_text: "#ffffff" },
-      shader_stack: {
-        glow: { blur: 20.0, color: "#FF007F" },
-        active_gradient: ["#FF007F", "#FFAA00"],
-      },
-      spring_physics: { tension: 240, friction: 16, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    lift: {
-      font: "Bebas Neue",
-      uppercase: true,
-      kinetic_mode: "pop",
-      colors: { primary: "#ffffff", accent: "#05ffd5", outline: "#101812", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 1.8, color: "#101812" },
-        active_gradient: ["#B5FFEA", "#05FFD5"],
-      },
-      spring_physics: { tension: 260, friction: 16, mass: 1.0, scale_overshoot: 1.20, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    chalk: {
-      font: "Merriweather",
-      uppercase: false,
-      kinetic_mode: "wave",
-      frame: "rules",
-      colors: { primary: "#ffffff", accent: "#00d4fd", outline: "#141414", upcoming: "#999999", fill: "#00d4fd", fill_text: "#141414" },
-      shader_stack: {
-        shadow: { blur: 6.0, x: 0, y: 3.0, color: "rgba(0, 0, 0, 0.40)" },
-      },
-      spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    pulse: {
-      font: "Montserrat",
-      uppercase: true,
-      kinetic_mode: "wave",
-      colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#121410", upcoming: "#888888", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 2.0, color: "#121410" },
-        active_gradient: ["#C6FFED", "#66F4C6"],
-      },
-      spring_physics: { tension: 220, friction: 18, mass: 1.0, scale_overshoot: 1.16, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    elevate: {
-      font: "Montserrat",
-      uppercase: true,
-      kinetic_mode: "wave",
-      frame: "rules",
-      colors: { primary: "#f2f2f2", accent: "#009c63", outline: "#101010", upcoming: "#666666", fill: "#ffffff", fill_text: "#000000" },
-      shader_stack: {
-        outer_stroke: { width: 0.5, color: "#101010" },
-      },
-      spring_physics: { tension: 200, friction: 20, mass: 1.0, scale_overshoot: 1.12, slide_y_px: 8 },
-      caption_box: "none",
-    },
-    karaoke: {
-      font: "Montserrat",
-      uppercase: false,
-      kinetic_mode: "glider",
-      colors: { primary: "#ffffff", accent: "#d5ff5f", outline: "#181a14", upcoming: "#999999", fill: "#131a1b", fill_text: "#ffffff" },
-      spring_physics: { tension: 210, friction: 18, mass: 1.0, scale_overshoot: 1.14, slide_y_px: 8 },
-      caption_box: "pill",
-    },
-    clean: {
-      font: "Montserrat",
-      uppercase: false,
-      kinetic_mode: "none",
-      colors: { primary: "#ffffff", accent: "#66f4c6", outline: "#141414", upcoming: "#999999", fill: "#ffffff", fill_text: "#000000" },
-      caption_box: "none",
-    },
-  };
+  $("#clips-grid").addEventListener("click", (event) => {
+    const link = event.target.closest("[data-download-kind]");
+    if (!link) return;
+    event.preventDefault();
+    const job = state.jobs.find((item) => item.id === state.activeJobId);
+    const clip = job?.clips?.[Number(link.dataset.clipIndex)];
+    if (!clip) {showToast("Open this project again to refresh the clip links."); return;}
+    const quality = link.closest(".clip-card")?.querySelector(".quality-select")?.value;
+    downloadClip(clip, job, link.dataset.downloadKind, quality);
+  });
 
   function selectCaptionStyle(style) {
     if (!style) return;
@@ -1011,7 +1137,7 @@ function init() {
       $("#min-duration").value = String(options.find((value) => value < Number($("#max-duration").value)) || 10);
     }
   });
-  refreshProjects();
+  restoreSession();
 }
 function updateCount(delta) {
   const input = $("#clip-count");
@@ -1035,7 +1161,28 @@ let activeStudio = {
   rafId: null,
   activeWordIdx: -1,
   cleanups: [],
+  generation: 0,
+  sourceStart: 0,
+  sfxMixer: null,
 };
+
+function normalizeTimeline(timeline) {
+  for (const word of timeline.words || []) {
+    word.start_ms = Number.isFinite(word.start_ms) ? word.start_ms : Math.round((Number(word.start) || 0) * 1000);
+    word.end_ms = Number.isFinite(word.end_ms) ? word.end_ms : Math.round((Number(word.end) || 0) * 1000);
+    word.start = word.start_ms / 1000;
+    word.end = word.end_ms / 1000;
+    word.text = word.text ?? word.word ?? "";
+    word.word = word.text;
+  }
+}
+function studioSourceTime(video) {
+  return activeStudio.sourceStart + (video.currentTime || 0);
+}
+function studioActiveWord(time) {
+  const ms = time * 1000;
+  return (activeStudio.timeline?.words || []).findIndex((word) => ms >= word.start_ms && ms < word.end_ms);
+}
 
 function formatTimePrecise(seconds) {
   if (isNaN(seconds) || seconds < 0) return "00:00.00";
@@ -1046,11 +1193,17 @@ function formatTimePrecise(seconds) {
 }
 
 async function openCaptionStudio(clip, job) {
+  try {await configureCaptionStudio(clip, job);}
+  catch (error) {closeCaptionStudio(); showApiError(error, "Could not open Caption Studio.");}
+}
+async function configureCaptionStudio(clip, job) {
   const modal = $("#caption-studio-modal");
   if (!modal) return;
 
   // Clean up any prior running studio instance
   closeCaptionStudio();
+  const generation = activeStudio.generation;
+  const owner = api.getRevision();
 
   activeStudio.clip = clip;
   activeStudio.job = job;
@@ -1059,31 +1212,21 @@ async function openCaptionStudio(clip, job) {
   if (clip.timeline && clip.timeline.words) {
     activeStudio.timeline = JSON.parse(JSON.stringify(clip.timeline));
   } else {
-    try {
-      const res = await fetch(`/api/jobs/${job.id}/clips/${clip.filename}/timeline`);
-      if (res.ok) {
-        activeStudio.timeline = await res.json();
-      } else {
-        showToast("Loading timeline...");
-        activeStudio.timeline = {
-          start_ms: Math.round((clip.start || 0) * 1000),
-          end_ms: Math.round((clip.end || (clip.start + clip.duration || 5)) * 1000),
-          aspect_ratio: clip.aspect_ratio || job.aspect_ratio || "9:16",
-          styling_metadata: { preset_key: job.caption_style || "focus" },
-          words: [],
-          phrases: [],
-        };
-      }
-    } catch {
-      activeStudio.timeline = { words: [], phrases: [] };
-    }
+    const timeline = await api.request(clip.timeline_url || `/api/jobs/${encodeURIComponent(job.id)}/clips/${encodeURIComponent(clip.filename)}/timeline`);
+    if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
+    if (!Array.isArray(timeline.words)) throw new Error("The backend returned an invalid caption timeline. Refresh the project and retry.");
+    activeStudio.timeline = timeline;
   }
+  normalizeTimeline(activeStudio.timeline);
+  activeStudio.sourceStart = Number(clip.start ?? activeStudio.timeline.start_ms / 1000) || 0;
+  syncTimelinePhrases();
 
   // Deterministically ensure active font is ready before initial canvas frame draw
   if (window.FontLoader && activeStudio.timeline && activeStudio.timeline.styling_metadata) {
     const fName = activeStudio.timeline.styling_metadata.font || 'Montserrat';
     await window.FontLoader.ensureFont(fName);
   }
+  if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
 
   // Populate Video Source
   const video = $("#studio-video");
@@ -1094,7 +1237,8 @@ async function openCaptionStudio(clip, job) {
   const playBtn = $("#studio-play-btn");
   const playIcon = $("#studio-play-icon");
 
-  video.src = clip.download_url;
+  video.crossOrigin = "anonymous";
+  video.src = mediaUrl(clip.preview_url);
   video.currentTime = 0;
   scrubber.value = 0;
 
@@ -1142,12 +1286,14 @@ async function openCaptionStudio(clip, job) {
   // Initialize Phase 5 Synchronized SFX Sub-Mixer
   let sfxMixer = null;
   if (window.SFXSubMixer) {
-    sfxMixer = new window.SFXSubMixer();
+    // A video element can be connected to a Web Audio source only once.
+    sfxMixer = activeStudio.sfxMixer || new window.SFXSubMixer();
+    activeStudio.sfxMixer = sfxMixer;
     sfxMixer.attachVideo(video);
     sfxMixer.syncTimeline(activeStudio.timeline);
     activeStudio.cleanups.push(() => {
       if (sfxMixer) {
-        sfxMixer.dispose();
+        sfxMixer.suspend();
         sfxMixer = null;
       }
     });
@@ -1171,12 +1317,12 @@ async function openCaptionStudio(clip, job) {
     timeDisplay.textContent = `${formatTimePrecise(t)} / ${formatTimePrecise(dur)}`;
 
     if (window.CaptionCanvasRenderer) {
-      const res = window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, t, w, h);
-      highlightActiveWordRow(res.activeWordIdx);
+      window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, studioSourceTime(video), w, h);
+      highlightActiveWordRow(studioActiveWord(studioSourceTime(video)));
     }
 
     if (sfxMixer) {
-      sfxMixer.update(t, video.paused);
+      sfxMixer.update(studioSourceTime(video), video.paused);
     }
   }
 
@@ -1190,7 +1336,7 @@ async function openCaptionStudio(clip, job) {
   // Play/Pause transport
   function togglePlay() {
     if (video.paused) {
-      video.play();
+      video.play().catch((error) => showToast(`Playback failed: ${error.message}`));
     } else {
       video.pause();
     }
@@ -1239,37 +1385,42 @@ async function openCaptionStudio(clip, job) {
     if (activeStudio.rafId) cancelAnimationFrame(activeStudio.rafId);
   });
 
-  // Export with 1:1 Headless Parity
+  // Export and report the renderer selected by the backend.
   const exportBtn = $("#studio-export-btn");
   if (exportBtn) {
     exportBtn.onclick = async () => {
       exportBtn.disabled = true;
-      exportBtn.innerHTML = `<span>Exporting with 1:1 Headless Parity...</span>`;
+      exportBtn.innerHTML = `<span>Exporting edited clip…</span>`;
       try {
-        const resp = await fetch(`/api/jobs/${job.id}/clips/${clip.filename}/export`, {
+        const result = await api.request(`/api/jobs/${encodeURIComponent(job.id)}/clips/${encodeURIComponent(clip.filename)}/export`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ timeline: activeStudio.timeline }),
         });
-        const result = await resp.json();
-        if (resp.ok && result.ok) {
-          showToast(`Export complete: 1:1 Skia pixel parity rendered!`);
-          clip.timeline = result.timeline;
+        if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
+        if (result.ok) {
+          const renderer = result.renderer === "canvas" ? "Canvas" : result.renderer === "ass" ? "ASS subtitle" : result.renderer || "backend";
+          showToast(`Export complete using the ${renderer} renderer.`);
+          for (const field of ["download_url", "preview_url", "srt_url", "ass_url", "timeline_url"]) {
+            if (result[field]) clip[field] = result[field];
+          }
+          clip.timeline = result.timeline || activeStudio.timeline;
           clip.size = result.size;
-          video.src = `${clip.download_url}?t=${Date.now()}`;
+          video.src = mediaUrl(clip.preview_url, {t: Date.now()});
           video.currentTime = 0;
           renderClips(job);
         } else {
-          showToast(result.detail || "Export failed. Check backend logs.");
+          showToast(result.detail || "Export failed. Refresh the project and retry.");
         }
       } catch (err) {
-        showToast(`Export error: ${err.message}`);
+        showApiError(err, "Export failed. Please retry.");
       } finally {
         exportBtn.disabled = false;
-        exportBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Export with 1:1 Headless Parity</span>`;
+        exportBtn.innerHTML = `<span>Export edited clip</span>`;
       }
     };
   }
+  activeStudio.cleanups.push(() => {if (exportBtn) exportBtn.onclick = null;});
 
   // Open modal
   modal.hidden = false;
@@ -1316,7 +1467,7 @@ function renderStudioWordsList() {
       const w = words[idx];
       if (w) {
         w.text = e.target.value;
-        w.word = e.target.value.replace(/[^a-zA-Z0-9']/g, "");
+        w.word = e.target.value;
         // Also sync phrase words
         syncTimelinePhrases();
         triggerStudioRedraw();
@@ -1332,14 +1483,18 @@ function renderStudioWordsList() {
       const delta = parseInt(btn.dataset.delta, 10);
       const w = words[idx];
       if (!w) return;
-
+      const start = Number(activeStudio.timeline.start_ms ?? activeStudio.sourceStart * 1000);
+      const end = Number(activeStudio.timeline.end_ms ?? activeStudio.clip.end * 1000);
       if (field === "start") {
-        const newStartMs = Math.max(0, (w.start_ms || Math.round(w.start * 1000)) + delta);
+        const lower = Math.max(start, words[idx - 1]?.end_ms ?? start);
+        const upper = Math.min(end - 20, w.end_ms - 20);
+        const newStartMs = Math.min(upper, Math.max(lower, w.start_ms + delta));
         w.start_ms = newStartMs;
         w.start = newStartMs / 1000;
         $(`#time-start-${idx}`).textContent = `${w.start.toFixed(2)}s`;
       } else if (field === "end") {
-        const newEndMs = Math.max((w.start_ms || 0) + 20, (w.end_ms || Math.round(w.end * 1000)) + delta);
+        const upper = Math.min(end, words[idx + 1]?.start_ms ?? end);
+        const newEndMs = Math.max(w.start_ms + 20, Math.min(upper, w.end_ms + delta));
         w.end_ms = newEndMs;
         w.end = newEndMs / 1000;
         $(`#time-end-${idx}`).textContent = `${w.end.toFixed(2)}s`;
@@ -1373,10 +1528,12 @@ function syncTimelinePhrases() {
     let wPtr = 0;
     for (const p of phrases) {
       const pWords = [];
-      for (let i = 0; i < p.word_count && wPtr < words.length; i++, wPtr++) {
+      const count = Number.isInteger(p.word_count) ? p.word_count : (p.words || []).length;
+      for (let i = 0; i < count && wPtr < words.length; i++, wPtr++) {
         pWords.push(words[wPtr]);
       }
       p.words = pWords;
+      p.word_count = pWords.length;
       if (pWords.length > 0) {
         p.start = pWords[0].start;
         p.end = pWords[pWords.length - 1].end;
@@ -1386,6 +1543,7 @@ function syncTimelinePhrases() {
       }
     }
   }
+  activeStudio.sfxMixer?.syncTimeline(activeStudio.timeline);
 }
 
 function triggerStudioRedraw() {
@@ -1396,7 +1554,9 @@ function triggerStudioRedraw() {
   const w = canvas.width || 1080;
   const h = canvas.height || 1920;
   if (window.CaptionCanvasRenderer) {
-    window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, video.currentTime || 0, w, h);
+    const time = studioSourceTime(video);
+    window.CaptionCanvasRenderer.renderFrame(ctx, activeStudio.timeline, time, w, h);
+    highlightActiveWordRow(studioActiveWord(time));
   }
 }
 
@@ -1414,10 +1574,11 @@ function highlightActiveWordRow(activeIdx) {
 }
 
 function closeCaptionStudio() {
+  activeStudio.generation++;
   const modal = $("#caption-studio-modal");
   if (modal) {
     modal.classList.remove("open");
-    setTimeout(() => { modal.hidden = true; }, 200);
+    modal.hidden = true;
     document.body.style.overflow = "";
   }
   for (const cleanup of activeStudio.cleanups) {
@@ -1428,6 +1589,7 @@ function closeCaptionStudio() {
     cancelAnimationFrame(activeStudio.rafId);
     activeStudio.rafId = null;
   }
+  activeStudio.activeWordIdx = -1;
 }
 
 const closeStudioBtn = $("#close-caption-studio-btn");

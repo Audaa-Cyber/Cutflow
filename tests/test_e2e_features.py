@@ -21,6 +21,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from tests._isolation import isolate_storage
+
+isolate_storage()
 from unittest.mock import MagicMock, patch
 
 # Ensure repository root is on sys.path
@@ -364,16 +367,12 @@ class TestTier1BulkJobDeletion(BaseTestCase):
         self.assertIn("Delete all", btn_html)
 
     def test_frontend_js_delete_all_projects_function(self):
-        """F9: frontend/app.js implements deleteAllProjects() with confirmation and state reset."""
-        js_path = REPO_ROOT / "frontend" / "app.js"
-        content = js_path.read_text(encoding="utf-8")
-
-        self.assertIn("async function deleteAllProjects()", content)
-        self.assertIn('fetch("/api/jobs", { method: "DELETE" }', content)
-        self.assertIn('state.jobs = []', content)
-        self.assertIn('state.activeJobId = null', content)
-        self.assertIn('$("#project-count").textContent = "0"', content)
-        self.assertIn('delete-all-projects-button', content)
+        """F9: bulk deletion authenticates and clears only the current browser workspace."""
+        result = subprocess.run([
+            "node", "--test", "--test-name-pattern", "bulk deletion",
+            str(REPO_ROOT / "tests" / "frontend" / "app.test.js"),
+        ], cwd=REPO_ROOT, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 # ==============================================================================

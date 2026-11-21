@@ -1,0 +1,4 @@
+{$CUTFLOW_API_HOST} {
+    encode zstd gzip
+    reverse_proxy cutflow:8000
+}

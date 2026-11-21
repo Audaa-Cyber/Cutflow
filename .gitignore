@@ -11,3 +11,6 @@ data/
 node_modules/
 .vercel
 .env*
+.worktrees/
+dist/
+scratch/

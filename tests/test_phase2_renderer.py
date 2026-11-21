@@ -13,7 +13,11 @@ import json
 import subprocess
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
+from tests._isolation import isolate_storage
+
+isolate_storage()
 from unittest.mock import patch
 from starlette.testclient import TestClient
 
@@ -25,6 +29,27 @@ from backend.captions.timeline import build_kinetic_timeline
 class TestPhase2Renderer(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
+
+    def test_headless_sound_effect_export_stops_at_selected_clip_end(self):
+        with tempfile.TemporaryDirectory(prefix='cutflow-duration-regression-') as directory:
+            root = Path(directory)
+            source, output, timeline_file = root / 'source.mp4', root / 'clip.mp4', root / 'timeline.json'
+            subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10',
+                '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=22050',
+                '-t', '4', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', str(source)],
+                check=True, capture_output=True, timeout=30)
+            timeline = build_kinetic_timeline([{'word': 'money', 'start': 1.2, 'end': 1.5}],
+                                             1, 2, PRESETS['focus'], aspect='16:9')
+            self.assertTrue(timeline['audio_sfx'], 'fixture must exercise sound-effect inputs')
+            timeline_file.write_text(json.dumps(timeline), encoding='utf-8')
+            subprocess.run(['node', 'backend/render_headless.js', '--timeline', str(timeline_file),
+                '--source', str(source), '--output', str(output), '--start', '1', '--duration', '1',
+                '--width', '160', '--height', '90', '--fps', '10', '--preset', 'ultrafast',
+                '--fit-mode', 'letterbox'], check=True, capture_output=True, timeout=45)
+            probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                    '-of', 'json', str(output)], check=True, capture_output=True, text=True, timeout=10)
+            self.assertAlmostEqual(float(json.loads(probe.stdout)['format']['duration']), 1, delta=0.12)
 
     # ── 1. Static Font Mount ──────────────────────────────────────────────────
 
@@ -131,6 +156,8 @@ class TestPhase2Renderer(unittest.TestCase):
     # ── 4. Re-Export API Endpoint ─────────────────────────────────────────────
 
     def test_export_custom_clip_endpoint(self):
+        account = self.client.post("/api/auth/register", json={"email": f"renderer-{uuid.uuid4().hex}@example.com", "password": "renderer-test-password"}).json()
+        self.client.headers["Authorization"] = "Bearer " + account["token"]
         job_id = "f0e1d2c3b4a5968778695041322110ff"
         spec = PRESETS["focus"]
         words = [
@@ -158,21 +185,24 @@ class TestPhase2Renderer(unittest.TestCase):
             with LOCK:
                 JOBS[job_id] = {
                     "id": job_id,
+                    "owner_id": account["user"]["id"],
                     "status": "completed",
                     "created_at": 1000.0,
                     "updated_at": 1001.0,
                     "source_path": str(source_file),
+                    "video": {"duration": 2.0},
                     "aspect_ratio": "9:16",
                     "clips": [clip_data],
                     "candidates": [clip_data],
                 }
 
             try:
-                with patch("backend.app.render_clip_headless") as mock_headless:
+                with patch("backend.app.render_clip_headless") as mock_headless, patch("backend.app.render_clean_preview") as mock_preview:
                     def fake_headless(src, out_p, tl_p, *a, **kw):
                         out_p.write_bytes(b"new_rendered_bytes_456")
                         return True
                     mock_headless.side_effect = fake_headless
+                    mock_preview.side_effect = lambda src, out_p, *a, **kw: out_p.write_bytes(b"clean_preview_bytes")
 
                     # Modify a word in timeline payload
                     edited_timeline = dict(timeline)

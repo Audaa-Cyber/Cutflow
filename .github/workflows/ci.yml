@@ -16,12 +16,24 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip fastapi python-multipart pytest
+        run: python -m pip install --upgrade pip && python -m pip install -r backend/requirements-test.txt
+      - name: Install renderer dependencies
+        run: npm ci
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Check Python syntax
-        run: python -m py_compile backend/app.py tests/test_cutflow.py
+        run: python -m compileall -q backend tests
       - name: Run backend tests
-        run: pytest -q
+        run: python -m unittest discover -s tests -v
+      - name: Run frontend and deployment tests
+        run: npm test
+      - name: Build static frontend
+        run: npm run build
+        env:
+          CUTFLOW_API_URL: https://api.example.invalid
       - name: Check JavaScript syntax
-        run: node --check frontend/app.js
+        run: npm run check
+      - name: Build production image
+        run: docker build -t cutflow-ci .

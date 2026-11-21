@@ -216,9 +216,12 @@ async function renderVideo() {
     '-i', 'pipe:0',
     // Input 1: Source video clipped to time window
     '-ss', `${startSec.toFixed(3)}`,
-    '-i', opts.sourcePath,
     '-t', `${durationSec.toFixed(3)}`,
+    '-i', opts.sourcePath,
     ...sfxInputs,
+    // Output options must follow every input; otherwise -t trims the first SFX
+    // input and leaves the background video/audio running past the clip end.
+    '-t', `${durationSec.toFixed(3)}`,
     // Composite overlay and audio filter
     '-filter_complex', `${filterGraph}${audioFilterGraph}`,
     '-map', '[vout]',

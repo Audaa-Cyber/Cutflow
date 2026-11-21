@@ -14,18 +14,22 @@ import uuid
 from contextlib import contextmanager
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Request
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from backend.auth import AuthStore, REQUEST_SESSION
 
 from backend.captions import ass as ass_engine
 from backend.captions.presets import PRESETS as CAPTION_PRESETS
 from backend.captions.spec import CaptionSpec, resolve_headline_font
+from backend.youtube_source import build_download_options, configured_cookie_file, safe_download_error, validate_source_url
 from backend.captions.timeline import (
     KineticTimeline,
     WordToken,
@@ -65,40 +69,33 @@ def blob_enabled() -> bool:
 
 
 def blob_upload(local_path: Path, remote_pathname: str) -> str:
-    """Upload a local file to Vercel Blob and return its public URL."""
-    result = _blob_sync.put_blob(remote_pathname, local_path.read_bytes(), access="public")
+    """Upload privately; only backend media endpoints expose the artifact."""
+    with local_path.open("rb") as body:
+        result = _blob_sync.put_blob(remote_pathname, body, access="private", content_length=local_path.stat().st_size)
     return result.url
 
 
 def blob_download(url_or_pathname: str, dest: Path) -> None:
     """Download a Blob URL/pathname to a local path."""
-    result = _blob_sync.get_blob(url_or_pathname, access="public")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(result.body)
+    with _blob_sync.stream_blob(url_or_pathname, access="private") as chunks, dest.open("wb") as output:
+        for chunk in chunks:
+            output.write(chunk)
 
 
-def blob_delete(url_or_pathname: str) -> None:
+def blob_delete(url_or_pathname: str) -> bool:
     try:
         _blob_sync.delete_blob(url_or_pathname)
+        return True
     except Exception:
-        pass
+        return False
 
 # ---------------------------------------------------------------------------
 # YouTube cookies — write YOUTUBE_COOKIES env-var content to a temp file so
 # yt-dlp can authenticate and bypass bot-detection on datacenter IPs.
 # ---------------------------------------------------------------------------
-_YT_COOKIES_PATH: Path | None = None
-
-def _setup_yt_cookies() -> Path | None:
-    """Write YOUTUBE_COOKIES env var (Netscape cookies.txt format) to a temp file."""
-    cookies_content = os.getenv("YOUTUBE_COOKIES", "").strip()
-    if not cookies_content:
-        return None
-    tmp = Path(tempfile.gettempdir()) / "cutflow_yt_cookies.txt"
-    tmp.write_text(cookies_content, encoding="utf-8")
-    return tmp
-
-_YT_COOKIES_PATH = _setup_yt_cookies()
+# Cookie credentials are validated lazily on the worker rather than exposed or
+# materialized in a shared system-temp filename at application import time.
 
 
 def ensure_ffmpeg_path():
@@ -116,6 +113,8 @@ ensure_ffmpeg_path()
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
+MAX_OWNER_ACTIVE_JOBS = max(1, int(os.getenv("CUTFLOW_MAX_OWNER_ACTIVE_JOBS", "2")))
+MAX_OWNER_JOBS = max(1, int(os.getenv("CUTFLOW_MAX_OWNER_JOBS", "100")))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 EXPORT_RESOLUTIONS = {"480", "720", "1080", "2k"}
 EXPORT_LOCK = threading.Lock()
@@ -324,9 +323,91 @@ def load_persisted_jobs() -> None:
 
 
 load_persisted_jobs()
-POOL = ThreadPoolExecutor(max_workers=max(2, int(os.getenv("WORKER_CONCURRENCY", "2"))))
+POOL = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("WORKER_CONCURRENCY", "1"))))
+WORKER_FUTURES: dict[str, Future] = {}
+
+
+def queue_job_worker(job_id: str) -> None:
+    """Track pending/running attempts before cancellation or retry can observe them."""
+    with LOCK:
+        future = POOL.submit(process_job, job_id)
+        WORKER_FUTURES[job_id] = future
+
+        def finished(completed):
+            with LOCK:
+                if WORKER_FUTURES.get(job_id) is completed:
+                    WORKER_FUTURES.pop(job_id, None)
+        future.add_done_callback(finished)
 
 app = FastAPI(title="Cutflow", version="0.2.0", description="AI-assisted short-form video clipping workspace")
+AUTH_STORE = AuthStore(lambda: DB_PATH)
+
+
+@app.middleware("http")
+async def authenticate_request(request: Request, call_next):
+    path = request.url.path.rstrip("/")
+    protected = path == "/api/jobs" or path.startswith("/api/jobs/") or path in {"/api/auth/me", "/api/auth/logout"}
+    if not protected:
+        return await call_next(request)
+    authorization = request.headers.get("authorization", "")
+    session = None
+    if authorization.lower().startswith("bearer "):
+        session = AUTH_STORE.authenticate(authorization[7:].strip())
+    # Only exact read-only media endpoints accept query grants. Project metadata,
+    # timelines and mutations always require the account bearer token.
+    media_path = re.fullmatch(r"/api/jobs/[a-f0-9]{32}/clips/cutflow-\d{2}\.(?:mp4|srt|ass)(?:/preview)?", path)
+    if session is None and request.method in {"GET", "HEAD"} and media_path:
+        session = AUTH_STORE.authenticate_media(request.query_params.get("media_token", ""), path)
+    if session is None:
+        return JSONResponse({"detail": "Sign in to access your projects."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+    parts = path.split("/")
+    if len(parts) >= 4 and parts[2] == "jobs" and parts[3] not in {"upload", "url"}:
+        with LOCK:
+            job = JOBS.get(parts[3])
+            if not job or job.get("owner_id") != session["user"]["id"]:
+                return JSONResponse({"detail": "Project not found."}, status_code=404)
+    context_token = REQUEST_SESSION.set(session)
+    try:
+        return await call_next(request)
+    finally:
+        REQUEST_SESSION.reset(context_token)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip().rstrip("/") for origin in os.getenv("CUTFLOW_ALLOWED_ORIGINS", "").split(",") if origin.strip() and origin.strip() != "*"],
+    allow_methods=["GET", "HEAD", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["Content-Disposition", "X-Cutflow-Width", "X-Cutflow-Height"],
+)
+
+
+class AuthCredentials(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+@app.post("/api/auth/register")
+def register_account(payload: AuthCredentials, request: Request):
+    AUTH_STORE.check_rate_limit(request.client.host if request.client else "unknown")
+    return AUTH_STORE.register(payload.email, payload.password)
+
+
+@app.post("/api/auth/login")
+def login_account(payload: AuthCredentials, request: Request):
+    AUTH_STORE.check_rate_limit(request.client.host if request.client else "unknown")
+    return AUTH_STORE.login(payload.email, payload.password)
+
+
+@app.get("/api/auth/me")
+def current_account():
+    return {"user": REQUEST_SESSION.get()["user"]}
+
+
+@app.post("/api/auth/logout")
+def logout_account():
+    AUTH_STORE.logout(REQUEST_SESSION.get())
+    return {"ok": True}
 
 
 class URLJob(BaseModel):
@@ -361,6 +442,7 @@ class JobCancelledException(Exception):
 
 
 CANCELLED_JOBS: set[str] = set()
+ACTIVE_EXPORTS: set[str] = set()
 ACTIVE_PROCESSES: dict[str, subprocess.Popen] = {}
 
 
@@ -413,39 +495,36 @@ def probe_video(path: Path) -> dict:
 
 
 def download_source(url: str, job_id: str) -> Path:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"http", "https"} or host not in ALLOWED_HOSTS:
-        raise RuntimeError("For link imports, use a public YouTube or Vimeo video URL. Direct arbitrary URLs are disabled in this MVP.")
+    try:
+        validate_source_url(url)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
     try:
         import yt_dlp
     except ImportError as exc:
         raise RuntimeError("URL importing needs yt-dlp. Install the project requirements and restart.") from exc
     destination = UPLOADS / job_id
     destination.mkdir(parents=True, exist_ok=True)
-    options: dict = {
-        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-        "merge_output_format": "mp4",
-        "outtmpl": str(destination / "source.%(ext)s"),
-        "noplaylist": True,
-        "max_filesize": MAX_UPLOAD_BYTES,
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 30,
-        "retries": 3,
-    }
-    # Pass authenticated cookies when available to bypass YouTube bot detection
-    # on datacenter/cloud IPs. Set YOUTUBE_COOKIES in Vercel env vars with the
-    # contents of a cookies.txt (Netscape format) exported from a logged-in browser.
-    if _YT_COOKIES_PATH and _YT_COOKIES_PATH.is_file():
-        options["cookiefile"] = str(_YT_COOKIES_PATH)
-    # Use the web_embedded client as primary — it is less aggressively filtered
-    # than the default innertube web client on server IPs and does not require
-    # a PO token for most videos. Falls back to the standard web client.
-    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}:
-        options["extractor_args"] = {"youtube": {"player_client": ["web_embedded", "web"]}}
-    with yt_dlp.YoutubeDL(options) as ydl:
-        ydl.extract_info(url, download=True)
+    try:
+        options = build_download_options(destination, MAX_UPLOAD_BYTES, cookie_file=configured_cookie_file(DATA))
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    def check_download_cancelled(_progress):
+        if job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled":
+            raise JobCancelledException("Processing was cancelled by user.")
+
+    options["progress_hooks"] = [check_download_cancelled]
+    check_download_cancelled(None)
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            ydl.extract_info(url, download=True)
+    except JobCancelledException:
+        raise
+    except yt_dlp.utils.DownloadError as exc:
+        if job_id in CANCELLED_JOBS:
+            raise JobCancelledException("Processing was cancelled by user.") from exc
+        raise RuntimeError(safe_download_error(exc)) from exc
     candidates = [p for p in destination.glob("source.*") if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS]
     if not candidates:
         raise RuntimeError("The video download finished, but no supported video file was found.")
@@ -1266,19 +1345,24 @@ def write_srt(path: Path, words: list[dict], start: float, end: float, auto_emoj
         text = " ".join(tokens)
         s_h, s_m, s_s = int(line_start // 3600), int((line_start % 3600) // 60), line_start % 60
         e_h, e_m, e_s = int(line_end // 3600), int((line_end % 3600) // 60), line_end % 60
-        start_str = f"{s_h:02d}:{s_m:02d}:{int(s_s):02d},{int((s_s % 1) * 1000):03d}"
-        end_str = f"{e_h:02d}:{e_m:02d}:{int(e_s):02d},{int((e_s % 1) * 1000):03d}"
+        def timestamp(seconds: float) -> str:
+            milliseconds = int(round(seconds * 1000))
+            hours, milliseconds = divmod(milliseconds, 3600000)
+            minutes, milliseconds = divmod(milliseconds, 60000)
+            seconds_int, milliseconds = divmod(milliseconds, 1000)
+            return f"{hours:02d}:{minutes:02d}:{seconds_int:02d},{milliseconds:03d}"
+        start_str, end_str = timestamp(line_start), timestamp(line_end)
         lines.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
         idx += 1
     path.write_text("\n".join(lines) if lines else "1\n00:00:00,000 --> 00:00:01,000\n...\n", encoding="utf-8")
 
 
-def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None, fit_mode: str = "blur") -> None:
+def render_clip(source: Path, output: Path, subtitle_path: Path | None, start: float, end: float, aspect: str, caption_style: str = "clean", template: str = "podcast", job_id: str | None = None, fit_mode: str = "blur") -> None:
     dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
     width, height = dimensions[aspect]
-    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:")
+    ass_path = subtitle_path.resolve().as_posix().replace(":", r"\:") if subtitle_path else ""
     fonts_dir = FONTS_DIR.resolve().as_posix().replace(":", r"\:")
-    ass_filter = f"ass='{ass_path}':fontsdir='{fonts_dir}'"
+    ass_filter = f"ass='{ass_path}':fontsdir='{fonts_dir}'" if subtitle_path else "null"
     profile = STYLE_PROFILES.get(template, STYLE_PROFILES["podcast"])
     eq_filter = profile.get("eq", "contrast=1.04:saturation=1.06:brightness=0.005")
     unsharp_filter = profile.get("unsharp", "5:5:0.25:3:3:0.0")
@@ -1325,7 +1409,7 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
     else:
         filter_graph = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},eq={eq_filter},unsharp={unsharp_filter},{ass_filter}"
 
-    duration = max(1, end - start)
+    duration = end - start
     if use_filter_complex:
         # Complex filtergraph: two [0:v] split paths merged via overlay
         # Must use -filter_complex + explicit -map to avoid 'multiple inputs' error
@@ -1351,6 +1435,12 @@ def render_clip(source: Path, output: Path, subtitle_path: Path, start: float, e
     run_command(command, timeout=1200, job_id=job_id)
 
 
+def render_clean_preview(source: Path, output: Path, start: float, end: float, aspect: str,
+                         job_id: str | None = None, fit_mode: str = "blur", template: str = "podcast") -> None:
+    """Render the framed video layer on a zero-based clipped playback clock."""
+    render_clip(source, output, None, start, end, aspect, template=template, job_id=job_id, fit_mode=fit_mode)
+
+
 def render_clip_headless(
     source: Path,
     output: Path,
@@ -1368,7 +1458,7 @@ def render_clip_headless(
     """
     dimensions = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
     width, height = dimensions.get(aspect, (1080, 1920))
-    duration = max(1.0, end - start)
+    duration = end - start
     headless_script = Path(__file__).resolve().parent / "render_headless.js"
 
     node_bin = shutil.which("node")
@@ -1394,8 +1484,11 @@ def render_clip_headless(
     try:
         run_command(cmd, timeout=1200, job_id=job_id)
         return output.is_file() and output.stat().st_size > 0
-    except Exception as exc:
-        print(f"[render_clip_headless] Fallback to libass: {exc}")
+    except JobCancelledException:
+        raise
+    except Exception:
+        # Renderer diagnostics can include private source locations.
+        print("[render_clip_headless] Canvas renderer unavailable; using libass.")
         return False
 
 
@@ -1429,6 +1522,130 @@ def render_export(source: Path, output: Path, aspect: str, resolution: str) -> N
     run_command(command, timeout=1200)
 
 
+def check_job_cancelled(job_id: str) -> None:
+    if job_id in CANCELLED_JOBS or job_id not in JOBS or JOBS[job_id].get("status") == "cancelled":
+        raise JobCancelledException("Processing was cancelled by user.")
+
+
+def source_available(job: dict) -> bool:
+    source_path = job.get("source_path") or ""
+    return bool(job.get("source_url") or job.get("source_blob_url") or source_path.startswith("blob:")
+                or (source_path and Path(source_path).is_file()))
+
+
+def resolve_job_source(job: dict) -> Path:
+    """Recover and persist one durable local source for processing and editing."""
+    job_id = job["id"]
+    check_job_cancelled(job_id)
+    source_path = job.get("source_path") or ""
+    cloud_location = job.get("source_blob_url") or (source_path[5:] if source_path.startswith("blob:") else "")
+    if source_path and not source_path.startswith("blob:") and Path(source_path).is_file():
+        return Path(source_path)
+    if cloud_location:
+        source = UPLOADS / job_id / "source.mp4"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        pending = source.with_name(f"source-{uuid.uuid4().hex}.part")
+        try:
+            blob_download(cloud_location, pending)
+            check_job_cancelled(job_id)
+            pending.replace(source)
+        finally:
+            pending.unlink(missing_ok=True)
+        update_job(job_id, source_path=str(source), source_blob_url=cloud_location)
+        return source
+    if job.get("source_url"):
+        source = download_source(job["source_url"], job_id)
+        check_job_cancelled(job_id)
+        updates = {"source_path": str(source)}
+        if blob_enabled():
+            updates["source_blob_url"] = blob_upload(source, f"cutflow/{job_id}/source-{uuid.uuid4().hex}{source.suffix}")
+        try:
+            check_job_cancelled(job_id)
+            update_job(job_id, **updates)
+        except Exception:
+            if updates.get("source_blob_url"):
+                blob_delete(updates["source_blob_url"])
+            raise
+        return source
+    raise HTTPException(400, "Source video file is no longer available.")
+
+
+def cleanup_job_cloud(job: dict) -> int:
+    """Attempt every private artifact deletion; return a safe failure count."""
+    locations = set(job.get("retired_artifacts", []))
+    source_path = job.get("source_path") or ""
+    if source_path.startswith("blob:"):
+        locations.add(source_path[5:])
+    if job.get("source_blob_url"):
+        locations.add(job["source_blob_url"])
+    for clip in job.get("clips", []):
+        locations.update(clip.get("artifacts", {}).values())
+        legacy_url = clip.get("download_url", "")
+        if legacy_url.startswith("https://"):
+            locations.add(legacy_url)
+    failures = 0
+    for location in locations:
+        if blob_delete(location) is False:
+            failures += 1
+    return failures
+
+
+def clip_media_urls(job_id: str, filename: str) -> dict:
+    base = f"/api/jobs/{job_id}/clips/"
+    stem = Path(filename).stem
+    return {"download_url": base + filename, "srt_url": base + stem + ".srt",
+            "ass_url": base + stem + ".ass", "preview_url": base + filename + "/preview",
+            "timeline_url": base + filename + "/timeline"}
+
+
+def artifact_directory(job: dict, clip: dict) -> Path:
+    directory = OUTPUTS / job["id"]
+    revision = clip.get("artifact_revision")
+    return directory / "revisions" / revision if revision else directory
+
+
+def clip_words(clip: dict) -> list[dict]:
+    # Timeline tokens carry `text`; Whisper tokens carry `word`.
+    raw = clip.get("timeline", {}).get("words", clip.get("words", []))
+    return [{**word, "word": word.get("text", word.get("word", ""))} for word in raw]
+
+
+def write_clip_subtitles(job: dict, clip: dict, directory: Path) -> None:
+    stem = Path(clip["filename"]).stem
+    words = clip_words(clip)
+    timeline = clip.get("timeline", {})
+    spec = resolve_caption_spec(timeline.get("styling_metadata", {}).get("preset_key", job.get("caption_style", "focus")),
+                                uppercase=job.get("uppercase", False), kinetic_pop=job.get("kinetic_pop", True))
+    directory.mkdir(parents=True, exist_ok=True)
+    write_srt(directory / (stem + ".srt"), words, clip["start"], clip["end"],
+              auto_emoji=job.get("auto_emoji", False), uppercase=job.get("uppercase", False))
+    content = ass_engine.compile_ass(spec, words=words, start=clip["start"], end=clip["end"],
+        aspect=clip.get("aspect_ratio", job.get("aspect_ratio", "9:16")),
+        auto_emoji=job.get("auto_emoji", False), emoji_map=EMOJI_MAP,
+        auto_headline=job.get("auto_headline", True), candidate_text=clip.get("text", ""),
+        template=job.get("template", "podcast"), extract_headline=extract_headline)
+    (directory / (stem + ".ass")).write_text(content, encoding="utf-8")
+
+
+def upload_clip_artifacts(job_id: str, clip: dict, directory: Path, revision: str) -> dict:
+    if not blob_enabled():
+        return {}
+    stem = Path(clip["filename"]).stem
+    files = {"mp4": clip["filename"], "srt": stem + ".srt", "ass": stem + ".ass",
+             "json": stem + ".json", "preview": stem + ".preview.mp4"}
+    uploaded = {}
+    try:
+        for key, name in files.items():
+            check_job_cancelled(job_id)
+            uploaded[key] = blob_upload(directory / name, f"cutflow/{job_id}/{revision}/{name}")
+        check_job_cancelled(job_id)
+        return uploaded
+    except Exception:
+        for location in uploaded.values():
+            blob_delete(location)
+        raise
+
+
 def process_job(job_id: str) -> None:
     job = JOBS.get(job_id)
     if not job or job_id in CANCELLED_JOBS or job.get("status") == "cancelled":
@@ -1439,24 +1656,10 @@ def process_job(job_id: str) -> None:
             raise JobCancelledException("Processing was cancelled by user.")
 
     source: Path | None = None
-    _tmp_source: Path | None = None  # temp local copy when source lives in Blob
     try:
         check_cancelled()
         update_job(job_id, status="processing", progress=4, stage="Preparing video", message="Checking the source video.")
-        if job.get("source_url"):
-            source = download_source(job["source_url"], job_id)
-        else:
-            source_path_str = job.get("source_path", "")
-            if source_path_str.startswith("blob:"):
-                # Source was stored in Vercel Blob — download to /tmp for ffmpeg/whisper
-                blob_url = source_path_str[len("blob:"):]
-                _tmp_source = UPLOADS / job_id / "source_tmp.mp4"
-                _tmp_source.parent.mkdir(parents=True, exist_ok=True)
-                update_job(job_id, progress=5, stage="Preparing video", message="Fetching video from cloud storage…")
-                blob_download(blob_url, _tmp_source)
-                source = _tmp_source
-            else:
-                source = Path(source_path_str)
+        source = resolve_job_source(job)
         if not source or not source.exists():
             raise RuntimeError("The source video could not be found.")
         check_cancelled()
@@ -1638,26 +1841,26 @@ def process_job(job_id: str) -> None:
             )
             if not rendered_ok:
                 render_clip(source, output, ass_path, candidate["start"], candidate["end"], job["aspect_ratio"], caption_style_to_use, template=job["template"], job_id=job_id, fit_mode=fit_mode)
-            # If Blob is available, push the rendered clip there so any container
-            # instance can serve it, and record the Blob URL as the download URL.
-            download_url = f"/api/jobs/{job_id}/clips/{clip_name}"
-            if blob_enabled() and output.is_file():
-                blob_url = blob_upload(output, f"cutflow/{job_id}/{clip_name}")
-                download_url = blob_url
-            completed.append({
+            check_cancelled()
+            render_clean_preview(source, output_dir / f"cutflow-{index:02d}.preview.mp4",
+                                 candidate["start"], candidate["end"], job["aspect_ratio"],
+                                 job_id=job_id, fit_mode=fit_mode, template=job["template"])
+            check_cancelled()
+            completed_clip = {
                 **candidate,
                 "id": str(uuid.uuid4()),
                 "filename": clip_name,
-                "download_url": download_url,
-                "srt_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.srt')}",
-                "ass_url": f"/api/jobs/{job_id}/clips/{clip_name.replace('.mp4', '.ass')}",
-                "timeline_url": f"/api/jobs/{job_id}/clips/{clip_name}/timeline",
+                **clip_media_urls(job_id, clip_name),
+                "renderer": "canvas" if rendered_ok else "ass",
                 "size": output.stat().st_size,
                 "aspect_ratio": job["aspect_ratio"],
                 "finishing_label": profile["label"],
                 "finishing_desc": profile["description"],
                 "clip_style": job["template"],
-            })
+            }
+            completed_clip["artifacts"] = upload_clip_artifacts(job_id, completed_clip, output_dir, uuid.uuid4().hex)
+            check_cancelled()
+            completed.append(completed_clip)
             update_job(job_id, clips=completed, progress=35 + int(index / len(candidates) * 60))
         check_cancelled()
         update_job(job_id, status="completed", progress=100, stage="Ready to download", message=f"Created {len(completed)} clips.", clips=completed, transcript_preview=transcript[:1200], language=language)
@@ -1672,12 +1875,6 @@ def process_job(job_id: str) -> None:
         CANCELLED_JOBS.discard(job_id)
         with LOCK:
             ACTIVE_PROCESSES.pop(job_id, None)
-        # Remove the temp local copy of a Blob-stored source to free container disk space
-        if _tmp_source and _tmp_source.exists():
-            try:
-                _tmp_source.unlink(missing_ok=True)
-            except Exception:
-                pass
 
 
 def create_job(
@@ -1712,9 +1909,11 @@ def create_job(
     if not (10 <= min_duration < max_duration <= 90):
         raise HTTPException(400, "Clip duration must be between 10 and 90 seconds, with minimum below maximum.")
     job_id = job_id or uuid.uuid4().hex
+    session = REQUEST_SESSION.get()
+    owner_id = session["user"]["id"] if session else None
     template_label = "Smart Auto-Detect" if template == "auto" else TEMPLATES[template]["label"]
     job = {
-        "id": job_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
+        "id": job_id, "owner_id": owner_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
         "message": "Your video is queued for analysis.", "template": template,
         "template_label": template_label, "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
@@ -1726,18 +1925,57 @@ def create_job(
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
-        active_jobs = sum(1 for existing in JOBS.values() if existing.get("status") in {"queued", "processing"})
-        if active_jobs >= MAX_ACTIVE_JOBS:
-            raise HTTPException(429, f"Cutflow is busy. Wait for a project to finish before starting another (limit: {MAX_ACTIVE_JOBS} active jobs).")
+        check_job_quota(owner_id)
         JOBS[job_id] = job
         persist_job(job)
-    POOL.submit(process_job, job_id)
+        queue_job_worker(job_id)
     return public_job(job)
 
 
+def check_job_quota(owner_id: str | None, *, retry_id: str | None = None) -> None:
+    """Call under LOCK; retries consume an active slot but no new stored project."""
+    active = [j for j in JOBS.values() if j.get("status") in {"queued", "processing"} and j.get("id") != retry_id]
+    if len(active) >= MAX_ACTIVE_JOBS:
+        raise HTTPException(429, f"Cutflow is busy. Wait for an active project to finish (limit: {MAX_ACTIVE_JOBS}).")
+    if owner_id is not None:
+        owned = [j for j in JOBS.values() if j.get("owner_id") == owner_id]
+        if retry_id is None and len(owned) >= MAX_OWNER_JOBS:
+            raise HTTPException(429, f"Your project limit is {MAX_OWNER_JOBS}. Delete an old project before creating another.")
+        if sum(j.get("owner_id") == owner_id for j in active) >= MAX_OWNER_ACTIVE_JOBS:
+            raise HTTPException(429, f"Wait for one of your active projects to finish (limit: {MAX_OWNER_ACTIVE_JOBS}).")
+
+
 def public_job(job: dict) -> dict:
-    hidden = {"source_path"}
-    return {key: value for key, value in job.items() if key not in hidden}
+    hidden = {"owner_id", "source_path", "source_url", "source_blob_url", "artifacts", "artifact_revision", "retired_artifacts", "blob_url"}
+    def sanitize(value):
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items() if key not in hidden}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+    result = sanitize(job)
+    session = REQUEST_SESSION.get()
+    for collection in ("clips", "candidates"):
+        for clip in result.get(collection, []):
+            filename = clip.get("filename")
+            # Candidates without a rendered filename have no media endpoints yet.
+            if not filename or not re.fullmatch(r"cutflow-\d{2}\.mp4", filename):
+                for key in ("download_url", "srt_url", "ass_url", "preview_url", "timeline_url"):
+                    clip.pop(key, None)
+                continue
+            prefix = f"/api/jobs/{job['id']}/clips/"
+            urls = {
+                "download_url": prefix + filename,
+                "srt_url": prefix + filename.replace(".mp4", ".srt"),
+                "ass_url": prefix + filename.replace(".mp4", ".ass"),
+                "preview_url": prefix + filename + "/preview",
+                "timeline_url": prefix + filename + "/timeline",
+            }
+            for key, path in urls.items():
+                if session and key != "timeline_url":
+                    path += "?media_token=" + AUTH_STORE.media_token(session, path)
+                clip[key] = path
+    return result
 
 
 @app.get("/api/health")
@@ -1773,6 +2011,9 @@ async def upload_job(
     kinetic_pop: bool = Form(True),
     fit_mode: str = Form("blur"),
 ):
+    session = REQUEST_SESSION.get()
+    with LOCK:
+        check_job_quota(session["user"]["id"] if session else None)
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, "Unsupported video format. Use MP4, MOV, MKV, WEBM, M4V, or AVI.")
@@ -1793,6 +2034,9 @@ async def upload_job(
                     destination.unlink(missing_ok=True)
                     raise HTTPException(413, f"Video exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit.")
                 output.write(chunk)
+    except Exception:
+        shutil.rmtree(destination_dir, ignore_errors=True)
+        raise
     finally:
         await file.close()
     # When Blob is configured, push the upload there so any container instance
@@ -1816,6 +2060,8 @@ async def upload_job(
             fit_mode=fit_mode, job_id=job_id,
         )
     except Exception:
+        if source_path_for_job.startswith("blob:"):
+            blob_delete(source_path_for_job[5:])
         shutil.rmtree(destination_dir, ignore_errors=True)
         raise
     return job
@@ -1835,7 +2081,10 @@ def url_job(payload: URLJob):
 
 @app.get("/api/jobs")
 def list_jobs():
-    return sorted((public_job(job) for job in JOBS.values()), key=lambda item: item["created_at"], reverse=True)
+    session = REQUEST_SESSION.get()
+    with LOCK:
+        jobs = [job for job in JOBS.values() if session is None or job.get("owner_id") == session["user"]["id"]]
+        return sorted((public_job(job) for job in jobs), key=lambda item: item["created_at"], reverse=True)
 
 
 @app.get("/api/jobs/{job_id}")
@@ -1857,7 +2106,8 @@ def get_job_candidates(job_id: str):
         job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "Project not found.")
-    candidates = job.get("candidates") or job.get("clips") or []
+    safe_job = public_job(job)
+    candidates = safe_job.get("candidates") or safe_job.get("clips") or []
     return {
         "job_id": job_id,
         "status": job.get("status"),
@@ -1888,176 +2138,33 @@ def get_clip_timeline(job_id: str, filename: str):
 
 @app.post("/api/jobs/{job_id}/clips/{filename}/export")
 def export_custom_clip(job_id: str, filename: str, payload: dict):
-    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
-        raise HTTPException(404, "Project not found.")
+    from backend import app as media_api
+    from backend.media_storage import export_clip
     with LOCK:
-        job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, "Project not found.")
-    if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.mp4", filename):
-        raise HTTPException(400, "Invalid clip filename.")
+        if job_id in ACTIVE_EXPORTS:
+            raise HTTPException(409, "An export is already running for this project.")
+        ACTIVE_EXPORTS.add(job_id)
+    try:
+        return export_clip(media_api, job_id, filename, payload)
+    except JobCancelledException:
+        raise HTTPException(409, "Export was cancelled or the project changed.") from None
+    finally:
+        with LOCK:
+            ACTIVE_EXPORTS.discard(job_id)
 
-    timeline = payload.get("timeline")
-    if not timeline or not isinstance(timeline, dict):
-        raise HTTPException(400, "Missing or invalid timeline payload.")
 
-    clips = job.get("clips", [])
-    clip = next((c for c in clips if c.get("filename") == filename), None)
-    if not clip:
-        raise HTTPException(404, "Clip not found.")
-
-    source_path = job.get("source_path")
-    if not source_path:
-        raise HTTPException(400, "Source video file is not available.")
-    # Resolve Blob-stored sources to a local temp path before re-rendering
-    if source_path.startswith("blob:"):
-        blob_url = source_path[len("blob:"):]
-        tmp_source = UPLOADS / job_id / "source_tmp.mp4"
-        tmp_source.parent.mkdir(parents=True, exist_ok=True)
-        if not tmp_source.exists():
-            blob_download(blob_url, tmp_source)
-        source_path = str(tmp_source)
-    if not Path(source_path).is_file():
-        raise HTTPException(400, "Source video file is not available on disk.")
-
-    out_dir = OUTPUTS / job_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    timeline_path = out_dir / f"{Path(filename).stem}.json"
-    timeline_path.write_text(json.dumps(timeline, indent=2), encoding="utf-8")
-    output_mp4 = out_dir / filename
-
-    start = float(timeline.get("start", clip["start"]))
-    end = float(timeline.get("end", clip["end"]))
-    aspect = timeline.get("aspect_ratio", job.get("aspect_ratio", "9:16"))
-    fit_mode = job.get("fit_mode", "blur")
-
-    # Render with deterministic headless Skia engine
-    success = render_clip_headless(
-        Path(source_path),
-        output_mp4,
-        timeline_path,
-        start=start,
-        end=end,
-        aspect=aspect,
-        job_id=job_id,
-        fit_mode=fit_mode,
-    )
-
-    if not success:
-        # Fallback to libass if node failed
-        ass_path = out_dir / f"{Path(filename).stem}.ass"
-        style_key = timeline.get("styling_metadata", {}).get("preset_key", job.get("caption_style", "focus"))
-        spec = resolve_caption_spec(style_key)
-        ass_content = ass_engine.compile_ass(
-            spec,
-            words=timeline.get("words", []),
-            start=start,
-            end=end,
-            aspect=aspect,
-        )
-        ass_path.write_text(ass_content, encoding="utf-8")
-        render_clip(Path(source_path), output_mp4, ass_path, start, end, aspect, style_key, fit_mode=fit_mode, job_id=job_id)
-
-    # Update clip metadata in-place
-    clip["timeline"] = timeline
-    clip["words"] = timeline.get("words", clip.get("words", []))
-    clip["size"] = output_mp4.stat().st_size
-    clip["start"] = start
-    clip["end"] = end
-    clip["duration"] = round(end - start, 2)
-    update_job(job_id, clips=clips)
-
-    return {
-        "ok": True,
-        "filename": filename,
-        "download_url": clip["download_url"],
-        "size": clip["size"],
-        "timeline": timeline,
-    }
+@app.get("/api/jobs/{job_id}/clips/{filename}/preview")
+def preview_clip(job_id: str, filename: str):
+    from backend import app as media_api
+    from backend.media_storage import preview
+    return preview(media_api, job_id, filename)
 
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
 def download_clip(job_id: str, filename: str, resolution: str | None = Query(default=None)):
-    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
-        raise HTTPException(404, "Project not found.")
-    with LOCK:
-        if job_id not in JOBS:
-            raise HTTPException(404, "Project not found.")
-    if Path(filename).name != filename or not re.fullmatch(r"cutflow-\d{2}\.(mp4|srt|ass)", filename):
-        raise HTTPException(400, "Invalid clip filename.")
-    path = OUTPUTS / job_id / filename
-    if not path.is_file():
-        # Check if the MP4 clip was pushed to Blob storage and serve from there
-        if filename.endswith(".mp4"):
-            with LOCK:
-                job = JOBS.get(job_id)
-            if job:
-                clip_data = next((c for c in job.get("clips", []) if c.get("filename") == filename), None)
-                if clip_data:
-                    clip_url = clip_data.get("download_url", "")
-                    if clip_url.startswith("https://") and "blob.vercel-storage.com" in clip_url:
-                        # Redirect to the Blob CDN URL directly
-                        from fastapi.responses import RedirectResponse
-                        return RedirectResponse(url=clip_url, status_code=302)
-        if filename.endswith((".srt", ".ass")):
-            with LOCK:
-                job = JOBS.get(job_id)
-            if job:
-                mp4_name = Path(filename).stem + ".mp4"
-                clip_data = next((c for c in job.get("clips", []) if c.get("filename") == mp4_name), None)
-                if clip_data and clip_data.get("text"):
-                    words_raw = clip_data.get("text", "").split()
-                    duration = max(1.0, clip_data["end"] - clip_data["start"])
-                    step = duration / max(1, len(words_raw))
-                    words = [{"start": clip_data["start"] + i * step, "end": clip_data["start"] + (i + 1) * step, "word": w} for i, w in enumerate(words_raw)]
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    if filename.endswith(".srt"):
-                        write_srt(path, words, clip_data["start"], clip_data["end"], auto_emoji=job.get("auto_emoji", False), uppercase=job.get("uppercase", False))
-                        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
-                    if filename.endswith(".ass"):
-                        custom_style = None
-                        if job.get("caption_mode") == "prompt" and job.get("caption_prompt"):
-                            custom_style = parse_caption_prompt(job["caption_prompt"], clip_data.get("text", ""))
-                        spec = resolve_caption_spec(
-                            job.get("caption_style", "focus"),
-                            custom_style=custom_style,
-                            uppercase=job.get("uppercase", False),
-                            kinetic_pop=job.get("kinetic_pop", True),
-                        )
-                        ass_content = ass_engine.compile_ass(
-                            spec,
-                            words=words,
-                            start=clip_data["start"],
-                            end=clip_data["end"],
-                            aspect=job.get("aspect_ratio", "9:16"),
-                            auto_emoji=job.get("auto_emoji", False),
-                            emoji_map=EMOJI_MAP,
-                            auto_headline=job.get("auto_headline", True),
-                            candidate_text=clip_data.get("text", ""),
-                            template=job.get("template", "podcast"),
-                            extract_headline=extract_headline,
-                        )
-                        path.write_text(ass_content, encoding="utf-8")
-                        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
-        raise HTTPException(404, "Clip is not ready or does not exist.")
-    if filename.endswith(".srt"):
-        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
-    if filename.endswith(".ass"):
-        return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
-    if resolution is None or resolution.lower() == "1080":
-        return FileResponse(path, media_type="video/mp4", filename=filename)
-    if resolution.lower() not in EXPORT_RESOLUTIONS:
-        raise HTTPException(400, "Choose 480p, 720p, 1080p, or 2K.")
-    with LOCK:
-        job = JOBS.get(job_id)
-        aspect = job.get("aspect_ratio", "9:16") if job else "9:16"
-    width, height = export_dimensions(aspect, resolution.lower())
-    export_path = OUTPUTS / job_id / "exports" / f"{Path(filename).stem}-{resolution.lower()}.mp4"
-    with EXPORT_LOCK:
-        if not export_path.is_file():
-            render_export(path, export_path, aspect, resolution.lower())
-    export_name = f"{Path(filename).stem}-{resolution.lower()}.mp4"
-    return FileResponse(export_path, media_type="video/mp4", filename=export_name, headers={"X-Cutflow-Width": str(width), "X-Cutflow-Height": str(height)})
+    from backend import app as media_api
+    from backend.media_storage import download
+    return download(media_api, job_id, filename, resolution)
 
 
 @app.post("/api/jobs/{job_id}/cancel")
@@ -2068,9 +2175,12 @@ def cancel_job(job_id: str):
         job = JOBS.get(job_id)
         if not job:
             raise HTTPException(404, "Project not found.")
-        if job["status"] in {"completed", "failed", "cancelled"}:
+        if job["status"] in {"completed", "failed", "cancelled"} and job_id not in ACTIVE_EXPORTS:
             return public_job(job)
         CANCELLED_JOBS.add(job_id)
+        future = WORKER_FUTURES.get(job_id)
+        if future:
+            future.cancel()
         proc = ACTIVE_PROCESSES.get(job_id)
         if proc:
             try:
@@ -2099,15 +2209,20 @@ def retry_job(job_id: str):
         job = JOBS.get(job_id)
         if not job:
             raise HTTPException(404, "Project not found.")
-        active_jobs = sum(1 for existing in JOBS.values() if existing.get("status") in {"queued", "processing"})
-        if active_jobs >= MAX_ACTIVE_JOBS:
-            raise HTTPException(429, f"Cutflow is busy. Wait for active jobs to finish (limit: {MAX_ACTIVE_JOBS}).")
+        if job.get("status") in {"queued", "processing"}:
+            raise HTTPException(409, "This project is already processing.")
+        future = WORKER_FUTURES.get(job_id)
+        if future is not None and not future.done():
+            raise HTTPException(409, "Previous processing is still stopping. Retry shortly.")
+        if job_id in ACTIVE_EXPORTS:
+            raise HTTPException(409, "A clip export is still stopping. Retry shortly.")
+        check_job_quota(job.get("owner_id"), retry_id=job_id)
 
         source_path = job.get("source_path")
         source_url = job.get("source_url")
-        if not source_path and not source_url:
+        if not source_path and not source_url and not job.get("source_blob_url"):
             raise HTTPException(400, "Cannot reprocess: source video is missing.")
-        if source_path and not Path(source_path).is_file() and not source_url:
+        if not source_available(job):
             raise HTTPException(400, "Source video file is no longer available on disk.")
 
         out_dir = OUTPUTS / job_id
@@ -2115,6 +2230,12 @@ def retry_job(job_id: str):
             shutil.rmtree(out_dir, ignore_errors=True)
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        retired = set(job.get("retired_artifacts", []))
+        for clip in job.get("clips", []):
+            retired.update(clip.get("artifacts", {}).values())
+            if clip.get("download_url", "").startswith("https://"):
+                retired.add(clip["download_url"])
+        job["retired_artifacts"] = sorted(retired)
         CANCELLED_JOBS.discard(job_id)
         job.update(
             status="queued",
@@ -2126,36 +2247,42 @@ def retry_job(job_id: str):
             updated_at=time.time(),
         )
         persist_job(job)
-    POOL.submit(process_job, job_id)
+        queue_job_worker(job_id)
     return public_job(job)
 
 
 @app.delete("/api/jobs")
 def delete_all_jobs():
+    session = REQUEST_SESSION.get()
+    owner_id = session["user"]["id"] if session else None
     with LOCK:
-        job_ids = list(JOBS.keys())
-        all_ids = set(job_ids) | set(ACTIVE_PROCESSES.keys())
-        for jid in all_ids:
+        selected = [job for job in JOBS.values() if session is None or job.get("owner_id") == owner_id]
+        job_ids = [job["id"] for job in selected]
+        process_ids = set(job_ids) | (set(ACTIVE_PROCESSES) if session is None else set())
+        for jid in process_ids:
             CANCELLED_JOBS.add(jid)
-        for proc in list(ACTIVE_PROCESSES.values()):
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        ACTIVE_PROCESSES.clear()
-        JOBS.clear()
+            proc = ACTIVE_PROCESSES.pop(jid, None)
+            if proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        for jid in job_ids:
+            JOBS.pop(jid, None)
         with db_connection() as connection:
-            cursor = connection.execute("DELETE FROM jobs")
-            deleted_count = cursor.rowcount
-            if deleted_count < 0:
+            if session is None:
+                cursor = connection.execute("DELETE FROM jobs")
+                deleted_count = max(len(job_ids), cursor.rowcount)
+            else:
+                connection.executemany("DELETE FROM jobs WHERE id = ?", [(jid,) for jid in job_ids])
                 deleted_count = len(job_ids)
-            elif deleted_count == 0 and job_ids:
-                deleted_count = len(job_ids)
-            deleted_count = max(0, deleted_count)
+
+    cloud_cleanup_failures = sum(cleanup_job_cloud(job) for job in selected)
 
     for directory in (UPLOADS, OUTPUTS):
         if directory.exists():
-            for item in directory.iterdir():
+            items = list(directory.iterdir()) if session is None else [directory / jid for jid in job_ids]
+            for item in items:
                 try:
                     if item.is_dir():
                         shutil.rmtree(item, ignore_errors=True)
@@ -2164,7 +2291,10 @@ def delete_all_jobs():
                 except Exception:
                     pass
 
-    return {"ok": True, "deleted_count": deleted_count}
+    result = {"ok": True, "deleted_count": deleted_count}
+    if cloud_cleanup_failures:
+        result["cloud_cleanup_failures"] = cloud_cleanup_failures
+    return result
 
 
 @app.delete("/api/jobs/{job_id}")
@@ -2184,10 +2314,14 @@ def delete_job(job_id: str):
             connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     if not job:
         raise HTTPException(404, "Project not found.")
+    cloud_cleanup_failures = cleanup_job_cloud(job)
     for directory in (UPLOADS / job_id, OUTPUTS / job_id):
         if directory.exists():
             shutil.rmtree(directory, ignore_errors=True)
-    return {"ok": True}
+    result = {"ok": True}
+    if cloud_cleanup_failures:
+        result["cloud_cleanup_failures"] = cloud_cleanup_failures
+    return result
 
 
 app.mount("/assets/fonts", StaticFiles(directory=FONTS_DIR), name="fonts")

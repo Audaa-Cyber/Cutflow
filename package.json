@@ -7,7 +7,9 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node scripts/build_frontend.js",
+    "test": "node --test tests/frontend/*.test.js tests/frontend_build.test.js",
+    "check": "node --check frontend/app.js && node --check backend/render_headless.js"
   },
   "repository": {
     "type": "git",

@@ -425,8 +425,8 @@ def build_word_token(
         id=f"w_{idx}",
         word=clean_word or raw_word,
         text=raw_word,
-        start=round(start_s, 3),
-        end=round(end_s, 3),
+        start=start_ms / 1000,
+        end=end_ms / 1000,
         start_ms=start_ms,
         end_ms=end_ms,
         duration_ms=duration_ms,
@@ -477,8 +477,10 @@ def build_kinetic_timeline(
     enriched_words: list[WordToken] = []
     for idx, w in enumerate(visible_raw):
         # Clamp word bounds within the clip
-        w_start = max(clip_start, float(w.get("start", clip_start)))
-        w_end = min(clip_end, float(w.get("end", clip_end)))
+        # Whisper may emit a zero-length word. Keep its minimum visible span
+        # within this clip, including when it lands at the trailing boundary.
+        w_start = max(clip_start, min(float(w.get("start", clip_start)), clip_end - 0.02))
+        w_end = min(clip_end, max(w_start + 0.02, float(w.get("end", clip_end))))
         token = build_word_token(
             {**w, "start": w_start, "end": w_end},
             idx=idx,

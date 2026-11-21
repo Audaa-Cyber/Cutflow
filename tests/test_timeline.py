@@ -11,6 +11,10 @@ Validates:
 from __future__ import annotations
 
 import unittest
+from tests._isolation import isolate_storage
+
+isolate_storage()
+import uuid
 from starlette.testclient import TestClient
 
 from backend.app import app, JOBS, LOCK, create_job
@@ -147,6 +151,8 @@ class TestKineticTimelinePhase1(unittest.TestCase):
     # ── 5. REST API Candidates & Timeline Endpoints ───────────────────────────
 
     def test_api_jobs_candidates_and_timeline_endpoints(self):
+        account = self.client.post("/api/auth/register", json={"email": f"timeline-{uuid.uuid4().hex}@example.com", "password": "timeline-test-password"}).json()
+        self.client.headers["Authorization"] = "Bearer " + account["token"]
         # Create a mock job directly in JOBS
         job_id = "a1b2c3d4e5f6789012345678abcdef01"
         spec = PRESETS["focus"]
@@ -176,6 +182,7 @@ class TestKineticTimelinePhase1(unittest.TestCase):
         with LOCK:
             JOBS[job_id] = {
                 "id": job_id,
+                "owner_id": account["user"]["id"],
                 "status": "completed",
                 "created_at": 1000.0,
                 "updated_at": 1001.0,
