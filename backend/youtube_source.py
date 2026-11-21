@@ -106,6 +106,8 @@ def build_download_options(destination: Path, max_bytes: int, *, cookie_file: Pa
         "no_warnings": True,
         "socket_timeout": 30,
         "retries": 3,
+        "concurrent_fragment_downloads": 4,
+        "http_chunk_size": 10485760,
         "js_runtimes": {"node": {}},
         "logger": QuietDownloadLogger(),
     }

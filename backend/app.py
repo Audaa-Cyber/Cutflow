@@ -448,12 +448,39 @@ def download_source(url: str, job_id: str) -> Path:
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
 
-    def check_download_cancelled(_progress):
+    last_progress_time = [0.0]
+
+    def on_download_progress(data: dict):
         if job_id in CANCELLED_JOBS or JOBS.get(job_id, {}).get("status") == "cancelled":
             raise JobCancelledException("Processing was cancelled by user.")
+        now = time.time()
+        if now - last_progress_time[0] < 1.5:
+            return
+        if data.get("status") == "downloading":
+            total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+            downloaded = data.get("downloaded_bytes") or 0
+            speed = data.get("speed") or 0
+            if total > 0:
+                pct = min(99, int(downloaded / total * 100))
+                speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed >= 1024 * 1024 else f"{int(speed / 1024)} KB/s"
+                update_job(job_id, progress=min(8, 4 + int(pct * 0.04)), message=f"Downloading video stream: {pct}% ({speed_str}).")
+            elif downloaded > 0:
+                mb = downloaded / (1024 * 1024)
+                update_job(job_id, message=f"Downloading video: {mb:.1f} MB transferred.")
+            last_progress_time[0] = now
 
-    options["progress_hooks"] = [check_download_cancelled]
-    check_download_cancelled(None)
+    options["progress_hooks"] = [on_download_progress]
+    on_download_progress({})
+
+    is_yt = any(h in url.lower() for h in ("youtube.com", "youtu.be"))
+    # If the operator hasn't explicitly set custom clients, start directly with tv_embedded
+    # to avoid the initial 20-45s timeout on the blocked web client.
+    if is_yt and not options.get("extractor_args", {}).get("youtube", {}).get("player_client"):
+        f_args = dict(options.get("extractor_args", {}))
+        f_args["youtube"] = dict(f_args.get("youtube", {}))
+        f_args["youtube"]["player_client"] = ["tv_embedded"]
+        options["extractor_args"] = f_args
+
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             ydl.extract_info(url, download=True)
@@ -462,12 +489,10 @@ def download_source(url: str, job_id: str) -> Path:
     except yt_dlp.utils.DownloadError as exc:
         if job_id in CANCELLED_JOBS:
             raise JobCancelledException("Processing was cancelled by user.") from exc
-        is_yt = any(h in url.lower() for h in ("youtube.com", "youtu.be"))
         if is_yt:
-            # YouTube bot detection frequently flags cloud datacenter IPs on standard web clients.
-            # Try player client profiles in order: tv_embedded, android
+            # If the primary client failed, try the next profile in order: android
             last_exc = exc
-            fallback_profiles = [["tv_embedded"], ["android"]]
+            fallback_profiles = [["android"], ["web"]]
             curr_clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
             for client_list in fallback_profiles:
                 if curr_clients == client_list:
