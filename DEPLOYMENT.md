@@ -1,10 +1,10 @@
 # Deploy Cutflow
 
-Cutflow uses a static frontend on Vercel and one persistent Docker backend. Video files are uploaded directly to the backend, so they do not pass through Vercel's function request-size limit. Authentication, SQLite projects, Whisper, FFmpeg, and the Node caption renderer run on the backend.
+Cutflow uses a static frontend on Vercel and one persistent Docker backend. Video files are uploaded directly to the backend, so they do not pass through Vercel's function request-size limit. SQLite projects, Whisper, FFmpeg, and the Node caption renderer run on the backend. Registration, login and logout have been removed; visitors use a shared project workspace.
 
 If you have not chosen hosting before: the backend needs a computer that stays online, runs Docker, and keeps its disk across restarts. You can rent a Linux server or choose a container service with persistent storage. The steps below use a Linux server and a DNS hostname you control; the Docker package does not provision or purchase that server. Keep Vercel for the frontend.
 
-The prepared image has passed a real 29.5 MiB upload, transcription, Canvas export, edited subtitles, two-account isolation and restart-persistence test locally. The original reported YouTube URL also passed actual download, transcription, clipping and edited export from the local Docker connection. Generated/edited video durations were verified with ffprobe. See `DEPLOYMENT_READINESS.md` for the exact verified scope and remaining live checks.
+The earlier prepared image passed a real 29.5 MiB upload, transcription, Canvas export, edited subtitles and restart-persistence test locally. The original reported YouTube URL also passed actual download, transcription, clipping and edited export from the local Docker connection. Generated/edited video durations were verified with ffprobe. Rebuild the image to include the subsequent account-removal change; see `DEPLOYMENT_READINESS.md` for verification scope.
 
 ## 1. Prepare the backend server
 
@@ -18,7 +18,6 @@ CUTFLOW_API_URL=https://api.your-domain.com
 CUTFLOW_ALLOWED_ORIGINS=https://cutflow-fawn.vercel.app
 WHISPER_MODEL=base
 WHISPER_CPU_THREADS=2
-CUTFLOW_MAX_OWNER_ACTIVE_JOBS=2
 MAX_ACTIVE_JOBS=4
 ```
 
@@ -33,7 +32,7 @@ Caddy obtains HTTPS certificates and forwards requests to the private backend po
 
 Visit `https://api.your-domain.com/api/health` to confirm the backend is reachable. The Docker health check proves API availability; first-time model download and a full media workflow still need verification.
 
-Keep the `cutflow-data` volume across redeployments. It contains projects, account/password hashes, bearer session hashes, media signing material, uploads, rendered outputs, and model caches. Back it up. `docker compose down` preserves it; **do not use `down -v` when keeping data**.
+Keep the `cutflow-data` volume across redeployments. It contains projects, uploads, rendered outputs, model caches and any retained data from earlier releases. Back it up. `docker compose down` preserves it; **do not use `down -v` when keeping data**.
 
 For local use only:
 
@@ -55,13 +54,13 @@ Do not include `/api`, credentials, or a query string. Add every frontend domain
 
 Redeploy the frontend after setting its backend URL. A Production Vercel build deliberately fails if the backend URL is missing or invalid. A backend running only on your laptop is not a persistent public production backend.
 
-Only `CUTFLOW_API_URL` is embedded in the frontend. AI keys, Blob credentials, session material, and YouTube cookies belong exclusively on the backend.
+Only `CUTFLOW_API_URL` is embedded in the frontend. AI keys, Blob credentials and YouTube cookies belong exclusively on the backend.
 
-## 3. Accounts and media access
+## 3. Shared workspace and media access
 
-Visitors register or sign in before creating and managing projects. Each account can access only its projects. Legacy projects with no owner are not exposed to new accounts. The browser keeps the opaque bearer session in session storage; signing out revokes it. Media playback/download URLs use short-lived scoped grants tied to the session, so refresh a project when its media links expire.
+The app opens directly without an account. All visitors to the same deployment can list, create, edit, retry, cancel, download and delete projects in its shared library, including projects from earlier releases. Media URLs use backend routes without account tokens. Browser requests do not read or send previous login sessions.
 
-The app currently has local password accounts. Email delivery, password recovery, and email verification are not included in this release. Use HTTPS, retain backups, and choose a deployment/authentication provider if those account features are required.
+The authentication endpoints and account ownership checks have been removed at the user's request. Existing project/database files are preserved. Use HTTPS and retain backups; this release does not provide private account workspaces.
 
 ## 4. YouTube configuration
 
@@ -87,7 +86,7 @@ Reference: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-co
 
 ## 5. Optional Blob backup
 
-Local persistent disk is enough for the prepared deployment. If enabling `BLOB_READ_WRITE_TOKEN`, use a private Blob store on the backend. The application serves cloud media through authenticated backend routes, updates exported artifacts, and deletes associated objects with project deletion. Blob does not replace SQLite persistence or allow multiple backend replicas.
+Local persistent disk is enough for the prepared deployment. If enabling `BLOB_READ_WRITE_TOKEN`, use a private Blob store on the backend. The application serves cloud media through the shared backend routes, updates exported artifacts, and deletes associated objects with project deletion. Blob does not replace SQLite persistence or allow multiple backend replicas.
 
 ## Release checks
 
@@ -100,6 +99,6 @@ npm run build
 docker build -t cutflow .
 ```
 
-Before directing public users to the release, verify registration/login, isolation between two accounts, a video larger than 25 MB, a permitted YouTube URL, captions on a clip starting later in the source, edited export, quality/subtitle downloads, and project persistence after restarting the backend.
+Before deploying the release, verify immediate account-free access, shared project/media access, a video larger than 25 MB, a permitted YouTube URL, captions on a clip starting later in the source, edited export, quality/subtitle downloads, and project persistence after restarting the backend.
 
 Cancellation may take time during transcription. Retry reports that processing is still stopping until the previous worker exits; pending jobs are removed from the queue when cancelled. When optional cloud storage cannot remove an object, the deletion response and app report the number of files that could not be removed.

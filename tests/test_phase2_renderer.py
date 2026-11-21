@@ -156,8 +156,6 @@ class TestPhase2Renderer(unittest.TestCase):
     # ── 4. Re-Export API Endpoint ─────────────────────────────────────────────
 
     def test_export_custom_clip_endpoint(self):
-        account = self.client.post("/api/auth/register", json={"email": f"renderer-{uuid.uuid4().hex}@example.com", "password": "renderer-test-password"}).json()
-        self.client.headers["Authorization"] = "Bearer " + account["token"]
         job_id = "f0e1d2c3b4a5968778695041322110ff"
         spec = PRESETS["focus"]
         words = [
@@ -185,7 +183,6 @@ class TestPhase2Renderer(unittest.TestCase):
             with LOCK:
                 JOBS[job_id] = {
                     "id": job_id,
-                    "owner_id": account["user"]["id"],
                     "status": "completed",
                     "created_at": 1000.0,
                     "updated_at": 1001.0,

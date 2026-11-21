@@ -18,13 +18,11 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-
-from backend.auth import AuthStore, REQUEST_SESSION
 
 from backend.captions import ass as ass_engine
 from backend.captions.presets import PRESETS as CAPTION_PRESETS
@@ -114,8 +112,6 @@ ensure_ffmpeg_path()
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 MAX_VIDEO_SECONDS = int(os.getenv("MAX_VIDEO_SECONDS", str(3 * 60 * 60)))
 MAX_ACTIVE_JOBS = max(1, int(os.getenv("MAX_ACTIVE_JOBS", "4")))
-MAX_OWNER_ACTIVE_JOBS = max(1, int(os.getenv("CUTFLOW_MAX_OWNER_ACTIVE_JOBS", "2")))
-MAX_OWNER_JOBS = max(1, int(os.getenv("CUTFLOW_MAX_OWNER_JOBS", "100")))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 EXPORT_RESOLUTIONS = {"480", "720", "1080", "2k"}
 EXPORT_LOCK = threading.Lock()
@@ -341,74 +337,15 @@ def queue_job_worker(job_id: str) -> None:
         future.add_done_callback(finished)
 
 app = FastAPI(title="Cutflow", version="0.2.0", description="AI-assisted short-form video clipping workspace")
-AUTH_STORE = AuthStore(lambda: DB_PATH)
-
-
-@app.middleware("http")
-async def authenticate_request(request: Request, call_next):
-    path = request.url.path.rstrip("/")
-    protected = path == "/api/jobs" or path.startswith("/api/jobs/") or path in {"/api/auth/me", "/api/auth/logout"}
-    if not protected:
-        return await call_next(request)
-    authorization = request.headers.get("authorization", "")
-    session = None
-    if authorization.lower().startswith("bearer "):
-        session = AUTH_STORE.authenticate(authorization[7:].strip())
-    # Only exact read-only media endpoints accept query grants. Project metadata,
-    # timelines and mutations always require the account bearer token.
-    media_path = re.fullmatch(r"/api/jobs/[a-f0-9]{32}/clips/cutflow-\d{2}\.(?:mp4|srt|ass)(?:/preview)?", path)
-    if session is None and request.method in {"GET", "HEAD"} and media_path:
-        session = AUTH_STORE.authenticate_media(request.query_params.get("media_token", ""), path)
-    if session is None:
-        return JSONResponse({"detail": "Sign in to access your projects."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
-    parts = path.split("/")
-    if len(parts) >= 4 and parts[2] == "jobs" and parts[3] not in {"upload", "url"}:
-        with LOCK:
-            job = JOBS.get(parts[3])
-            if not job or job.get("owner_id") != session["user"]["id"]:
-                return JSONResponse({"detail": "Project not found."}, status_code=404)
-    context_token = REQUEST_SESSION.set(session)
-    try:
-        return await call_next(request)
-    finally:
-        REQUEST_SESSION.reset(context_token)
 
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip().rstrip("/") for origin in os.getenv("CUTFLOW_ALLOWED_ORIGINS", "").split(",") if origin.strip() and origin.strip() != "*"],
     allow_methods=["GET", "HEAD", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition", "X-Cutflow-Width", "X-Cutflow-Height"],
 )
-
-
-class AuthCredentials(BaseModel):
-    email: str = Field(max_length=254)
-    password: str = Field(min_length=1, max_length=1024)
-
-
-@app.post("/api/auth/register")
-def register_account(payload: AuthCredentials, request: Request):
-    AUTH_STORE.check_rate_limit(request.client.host if request.client else "unknown")
-    return AUTH_STORE.register(payload.email, payload.password)
-
-
-@app.post("/api/auth/login")
-def login_account(payload: AuthCredentials, request: Request):
-    AUTH_STORE.check_rate_limit(request.client.host if request.client else "unknown")
-    return AUTH_STORE.login(payload.email, payload.password)
-
-
-@app.get("/api/auth/me")
-def current_account():
-    return {"user": REQUEST_SESSION.get()["user"]}
-
-
-@app.post("/api/auth/logout")
-def logout_account():
-    AUTH_STORE.logout(REQUEST_SESSION.get())
-    return {"ok": True}
 
 
 class URLJob(BaseModel):
@@ -525,7 +462,25 @@ def download_source(url: str, job_id: str) -> Path:
     except yt_dlp.utils.DownloadError as exc:
         if job_id in CANCELLED_JOBS:
             raise JobCancelledException("Processing was cancelled by user.") from exc
-        raise RuntimeError(safe_download_error(exc)) from exc
+        is_yt = any(h in url.lower() for h in ("youtube.com", "youtu.be"))
+        curr_clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
+        if is_yt and curr_clients != ["android", "ios"]:
+            fallback_opts = dict(options)
+            f_args = dict(fallback_opts.get("extractor_args", {}))
+            f_args["youtube"] = dict(f_args.get("youtube", {}))
+            f_args["youtube"]["player_client"] = ["android", "ios"]
+            fallback_opts["extractor_args"] = f_args
+            try:
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                    ydl.extract_info(url, download=True)
+            except JobCancelledException:
+                raise
+            except Exception as retry_exc:
+                if job_id in CANCELLED_JOBS:
+                    raise JobCancelledException("Processing was cancelled by user.") from retry_exc
+                raise RuntimeError(safe_download_error(retry_exc)) from retry_exc
+        else:
+            raise RuntimeError(safe_download_error(exc)) from exc
     candidates = [p for p in destination.glob("source.*") if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS]
     if not candidates:
         raise RuntimeError("The video download finished, but no supported video file was found.")
@@ -1910,11 +1865,9 @@ def create_job(
     if not (10 <= min_duration < max_duration <= 90):
         raise HTTPException(400, "Clip duration must be between 10 and 90 seconds, with minimum below maximum.")
     job_id = job_id or uuid.uuid4().hex
-    session = REQUEST_SESSION.get()
-    owner_id = session["user"]["id"] if session else None
     template_label = "Smart Auto-Detect" if template == "auto" else TEMPLATES[template]["label"]
     job = {
-        "id": job_id, "owner_id": owner_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
+        "id": job_id, "status": "queued", "progress": 0, "stage": "Waiting in queue",
         "message": "Your video is queued for analysis.", "template": template,
         "template_label": template_label, "aspect_ratio": aspect_ratio,
         "clip_count": clip_count, "min_duration": min_duration, "max_duration": max_duration,
@@ -1926,24 +1879,18 @@ def create_job(
         "created_at": time.time(), "updated_at": time.time(),
     }
     with LOCK:
-        check_job_quota(owner_id)
+        check_job_quota()
         JOBS[job_id] = job
         persist_job(job)
         queue_job_worker(job_id)
     return public_job(job)
 
 
-def check_job_quota(owner_id: str | None, *, retry_id: str | None = None) -> None:
+def check_job_quota(*, retry_id: str | None = None) -> None:
     """Call under LOCK; retries consume an active slot but no new stored project."""
     active = [j for j in JOBS.values() if j.get("status") in {"queued", "processing"} and j.get("id") != retry_id]
     if len(active) >= MAX_ACTIVE_JOBS:
         raise HTTPException(429, f"Cutflow is busy. Wait for an active project to finish (limit: {MAX_ACTIVE_JOBS}).")
-    if owner_id is not None:
-        owned = [j for j in JOBS.values() if j.get("owner_id") == owner_id]
-        if retry_id is None and len(owned) >= MAX_OWNER_JOBS:
-            raise HTTPException(429, f"Your project limit is {MAX_OWNER_JOBS}. Delete an old project before creating another.")
-        if sum(j.get("owner_id") == owner_id for j in active) >= MAX_OWNER_ACTIVE_JOBS:
-            raise HTTPException(429, f"Wait for one of your active projects to finish (limit: {MAX_OWNER_ACTIVE_JOBS}).")
 
 
 def public_job(job: dict) -> dict:
@@ -1955,7 +1902,6 @@ def public_job(job: dict) -> dict:
             return [sanitize(item) for item in value]
         return value
     result = sanitize(job)
-    session = REQUEST_SESSION.get()
     for collection in ("clips", "candidates"):
         for clip in result.get(collection, []):
             filename = clip.get("filename")
@@ -1973,15 +1919,13 @@ def public_job(job: dict) -> dict:
                 "timeline_url": prefix + filename + "/timeline",
             }
             for key, path in urls.items():
-                if session and key != "timeline_url":
-                    path += "?media_token=" + AUTH_STORE.media_token(session, path)
                 clip[key] = path
     return result
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "cutflow", "version": "0.2.0"}
+    return {"ok": True, "service": "cutflow", "version": "0.2.0", "blob_enabled": blob_enabled()}
 
 
 @app.get("/api/templates")
@@ -2012,9 +1956,8 @@ async def upload_job(
     kinetic_pop: bool = Form(True),
     fit_mode: str = Form("blur"),
 ):
-    session = REQUEST_SESSION.get()
     with LOCK:
-        check_job_quota(session["user"]["id"] if session else None)
+        check_job_quota()
     extension = Path(file.filename or "").suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, "Unsupported video format. Use MP4, MOV, MKV, WEBM, M4V, or AVI.")
@@ -2080,11 +2023,74 @@ def url_job(payload: URLJob):
     )
 
 
+class BlobJob(BaseModel):
+    blob_url: str
+    filename: str = "video.mp4"
+    template: str = "podcast"
+    aspect_ratio: str = "9:16"
+    clip_count: int = Field(default=3, ge=1, le=8)
+    min_duration: int = Field(default=20, ge=10, le=60)
+    max_duration: int = Field(default=45, ge=15, le=90)
+    edit_prompt: str = Field(default="", max_length=1200)
+    caption_style: str = "focus"
+    caption_mode: str = "auto"
+    caption_prompt: str = Field(default="", max_length=400)
+    auto_headline: bool = True
+    auto_emoji: bool = False
+    uppercase: bool = False
+    kinetic_pop: bool = True
+    fit_mode: str = "blur"
+
+
+@app.post("/api/jobs/blob")
+def blob_job(payload: BlobJob):
+    parsed = urlparse(payload.blob_url)
+    host = (parsed.hostname or "").lower()
+    if not (host.endswith(".vercel-storage.com") or host.endswith(".blob.vercel-storage.com")):
+        raise HTTPException(400, "Enter a valid Vercel Blob URL.")
+    job_id = uuid.uuid4().hex
+    source_path = f"blob:{payload.blob_url}"
+    return create_job(
+        payload.template, payload.aspect_ratio, payload.clip_count, payload.min_duration, payload.max_duration,
+        source_path=source_path, edit_prompt=payload.edit_prompt,
+        caption_style=payload.caption_style, caption_mode=payload.caption_mode,
+        caption_prompt=payload.caption_prompt, auto_headline=payload.auto_headline,
+        auto_emoji=payload.auto_emoji, uppercase=payload.uppercase, kinetic_pop=payload.kinetic_pop,
+        fit_mode=payload.fit_mode, job_id=job_id,
+    )
+
+
+@app.post("/api/blob/upload")
+async def blob_upload_token(request: Request):
+    if not blob_enabled():
+        raise HTTPException(400, "Vercel Blob is not enabled on this server.")
+    try:
+        body = await request.body()
+        script_path = Path(__file__).resolve().parent / "blob_auth.js"
+        env = os.environ.copy()
+        env["BLOB_READ_WRITE_TOKEN"] = BLOB_TOKEN
+        result = subprocess.run(
+            ["node", str(script_path)],
+            input=body,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            err_msg = result.stderr.decode("utf-8", errors="replace")
+            raise HTTPException(500, f"Blob authorization failed: {err_msg}")
+        return json.loads(result.stdout.decode("utf-8"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Blob authorization error: {exc}")
+
+
 @app.get("/api/jobs")
 def list_jobs():
-    session = REQUEST_SESSION.get()
     with LOCK:
-        jobs = [job for job in JOBS.values() if session is None or job.get("owner_id") == session["user"]["id"]]
+        jobs = list(JOBS.values())
         return sorted((public_job(job) for job in jobs), key=lambda item: item["created_at"], reverse=True)
 
 
@@ -2217,7 +2223,7 @@ def retry_job(job_id: str):
             raise HTTPException(409, "Previous processing is still stopping. Retry shortly.")
         if job_id in ACTIVE_EXPORTS:
             raise HTTPException(409, "A clip export is still stopping. Retry shortly.")
-        check_job_quota(job.get("owner_id"), retry_id=job_id)
+        check_job_quota(retry_id=job_id)
 
         source_path = job.get("source_path")
         source_url = job.get("source_url")
@@ -2254,12 +2260,10 @@ def retry_job(job_id: str):
 
 @app.delete("/api/jobs")
 def delete_all_jobs():
-    session = REQUEST_SESSION.get()
-    owner_id = session["user"]["id"] if session else None
     with LOCK:
-        selected = [job for job in JOBS.values() if session is None or job.get("owner_id") == owner_id]
+        selected = list(JOBS.values())
         job_ids = [job["id"] for job in selected]
-        process_ids = set(job_ids) | (set(ACTIVE_PROCESSES) if session is None else set())
+        process_ids = set(job_ids) | set(ACTIVE_PROCESSES)
         for jid in process_ids:
             CANCELLED_JOBS.add(jid)
             proc = ACTIVE_PROCESSES.pop(jid, None)
@@ -2271,18 +2275,14 @@ def delete_all_jobs():
         for jid in job_ids:
             JOBS.pop(jid, None)
         with db_connection() as connection:
-            if session is None:
-                cursor = connection.execute("DELETE FROM jobs")
-                deleted_count = max(len(job_ids), cursor.rowcount)
-            else:
-                connection.executemany("DELETE FROM jobs WHERE id = ?", [(jid,) for jid in job_ids])
-                deleted_count = len(job_ids)
+            cursor = connection.execute("DELETE FROM jobs")
+            deleted_count = max(len(job_ids), cursor.rowcount)
 
     cloud_cleanup_failures = sum(cleanup_job_cloud(job) for job in selected)
 
     for directory in (UPLOADS, OUTPUTS):
         if directory.exists():
-            items = list(directory.iterdir()) if session is None else [directory / jid for jid in job_ids]
+            items = list(directory.iterdir())
             for item in items:
                 try:
                     if item.is_dir():

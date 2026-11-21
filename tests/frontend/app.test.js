@@ -47,7 +47,7 @@ function browser({config = {apiBase: 'https://media.example.test', configured: t
   const get = (selector) => { if (!nodes.has(selector)) nodes.set(selector, new Element()); return nodes.get(selector); };
   const docEvents = {};
   const document = {body: new Element(), querySelector: get, querySelectorAll: (selector) => [...nodes.values()].filter((el) => selector.startsWith('.') && el.classes.has(selector.slice(1))), addEventListener: (t, fn) => (docEvents[t] ||= []).push(fn), dispatchEvent: (ev) => (docEvents[ev.type] || []).forEach((fn) => fn(ev))};
-  const storage = new Map([['cutflow.session', JSON.stringify({token: 'owner-token', user: {id: 'owner', email: 'owner@example.test'}})]]);
+  const storage = new Map();
   const sessionStorage = {getItem: (k) => storage.get(k) || null, setItem: (k, v) => storage.set(k, v), removeItem: (k) => storage.delete(k)};
   function response(value = {id: 'job-1', template: 'podcast', aspect_ratio: '9:16', status: 'queued'}) { return new Response(typeof value === 'object' && 'body' in value ? value.body : JSON.stringify(value), {status: value.statusCode || 200, headers: {'content-type': value.contentType || 'application/json'}}); }
   class XHR {
@@ -77,19 +77,32 @@ function browser({config = {apiBase: 'https://media.example.test', configured: t
 
 function clip() {
   const words = [{id: 'a', text: 'First', start_ms: 60000, end_ms: 60200}, {id: 'b', text: 'Second', start_ms: 60300, end_ms: 60900}];
-  return {filename: 'clip.mp4', start: 60, end: 70, duration: 10, download_url: '/api/jobs/j/clips/clip.mp4?media_token=download', preview_url: '/api/jobs/j/clips/clip.mp4/preview?media_token=preview', srt_url: '/api/jobs/j/clips/clip.mp4/subtitles.srt?media_token=srt', ass_url: '/api/jobs/j/clips/clip.mp4/subtitles.ass?media_token=ass', timeline_url: '/api/jobs/j/clips/clip.mp4/timeline', timeline: {start_ms: 60000, end_ms: 70000, words, phrases: [{word_count: 1, words: [words[0]], start_ms: 60000, end_ms: 60200}, {word_count: 1, words: [words[1]], start_ms: 60300, end_ms: 60900}], styling_metadata: {preset_key: 'focus'}}};
+  return {filename: 'clip.mp4', start: 60, end: 70, duration: 10, download_url: '/api/jobs/j/clips/clip.mp4', preview_url: '/api/jobs/j/clips/clip.mp4/preview', srt_url: '/api/jobs/j/clips/clip.mp4/subtitles.srt', ass_url: '/api/jobs/j/clips/clip.mp4/subtitles.ass', timeline_url: '/api/jobs/j/clips/clip.mp4/timeline', timeline: {start_ms: 60000, end_ms: 70000, words, phrases: [{word_count: 1, words: [words[0]], start_ms: 60000, end_ms: 60200}, {word_count: 1, words: [words[1]], start_ms: 60300, end_ms: 60900}], styling_metadata: {preset_key: 'focus'}}};
 }
 
-test('26 MB multipart upload goes directly to configured backend with bearer and progress', async () => {
+test('26 MB multipart upload works without signing in and reports progress', async () => {
   const b = browser();
   b.run("state.file = {name: 'large.mp4', size: 26 * 1024 * 1024}");
   await b.context.createProject();
   assert.equal(b.uploads.length, 1);
   assert.equal(b.uploads[0].url, 'https://media.example.test/api/jobs/upload');
-  assert.equal(b.uploads[0].headers.Authorization, 'Bearer owner-token');
+  assert.equal(b.uploads[0].headers.Authorization, undefined);
   assert.equal(b.uploads[0].body.entries[0][0], 'file');
   assert.equal(b.run('state.jobs.length'), 1);
   assert.match(b.get('#upload-progress-label').textContent, /50/);
+});
+
+test('project refresh loads the shared workspace without a session or authorization header', async () => {
+  const b = browser({responses: [{id: 'shared-job', status: 'completed'}]});
+  // Project-list endpoints return arrays rather than a single project.
+  b.context.fetch = async (url, options = {}) => {
+    b.requests.push({url, options});
+    return new Response(JSON.stringify([{id: 'shared-job', status: 'completed'}]));
+  };
+  await b.context.refreshProjects();
+  assert.equal(b.requests.length, 1);
+  assert.equal(b.requests[0].options.headers.has('Authorization'), false);
+  assert.equal(b.run('state.jobs[0].id'), 'shared-job');
 });
 
 for (const error of [{statusCode: 413, contentType: 'text/plain', body: 'Request Entity Too Large'}, {statusCode: 400, body: '{"detail":"Unsupported video"}'}, {statusCode: 502, contentType: 'text/plain', body: 'Backend offline'}]) {
@@ -115,10 +128,10 @@ test('missing runtime configuration blocks requests with a visible setup error',
   assert.match(b.get('#toast').textContent, /configur.*backend|backend.*configur/i);
 });
 
-test('media quality URL preserves scoped grant and uses configured backend', () => {
+test('media quality URL uses configured backend without account grants', () => {
   const b = browser();
-  const url = new URL(b.context.CutflowAPI.mediaUrl('/api/jobs/j/clips/a.mp4?media_token=grant', {resolution: '720'}));
-  assert.equal(url.origin, 'https://media.example.test'); assert.equal(url.searchParams.get('media_token'), 'grant'); assert.equal(url.searchParams.get('resolution'), '720');
+  const url = new URL(b.context.CutflowAPI.mediaUrl('/api/jobs/j/clips/a.mp4', {resolution: '720'}));
+  assert.equal(url.origin, 'https://media.example.test'); assert.equal(url.searchParams.get('media_token'), null); assert.equal(url.searchParams.get('resolution'), '720');
 });
 
 test('Studio opens with all 18 presets, clean preview, and source-based caption/SFX clock', async () => {
@@ -128,7 +141,7 @@ test('Studio opens with all 18 presets, clean preview, and source-based caption/
   await b.context.openCaptionStudio(clip(), {id: 'j', caption_style: 'focus', clips: []});
   assert.equal(b.get('#caption-studio-modal').hidden, false);
   assert.equal(b.get('#studio-presets-scroller').querySelectorAll('.studio-preset-chip').length, 18);
-  assert.equal(b.get('#studio-video').src, 'https://media.example.test/api/jobs/j/clips/clip.mp4/preview?media_token=preview');
+  assert.equal(b.get('#studio-video').src, 'https://media.example.test/api/jobs/j/clips/clip.mp4/preview');
   b.get('#studio-video').currentTime = 0.5; b.get('#studio-video').dispatch('timeupdate');
   assert.equal(frames.at(-1), 60.5); assert.equal(sounds.at(-1), 60.5);
   assert.equal(b.run('activeStudio.activeWordIdx'), 1);
@@ -183,71 +196,30 @@ test('Studio nudge bounds and phrase synchronization keep milliseconds and multi
   assert.equal(b.run('activeStudio.timeline.phrases[1].text'), 'ሰላም, café!');
 });
 
-test('account changes clear previous project, video and Studio state', async () => {
-  const b = browser();
-  b.run("state.jobs = [{id:'old'}]; state.activeJobId = 'old'; state.file = {name:'old.mp4'}");
-  await b.context.openCaptionStudio(clip(), {id: 'j'});
-  b.context.CutflowAPI.setSession({token: 'new', user: {id: 'new', email: 'new@example.test'}});
-  assert.equal(b.run('state.jobs.length'), 0); assert.equal(b.run('state.activeJobId'), null); assert.equal(b.run('state.file'), null); assert.equal(b.run('activeStudio.timeline'), null);
-  assert.equal(b.get('#clips-grid').innerHTML, ''); assert.equal(b.get('#studio-video').src, undefined);
-});
-
-test('Studio export reports actual fallback renderer and refreshes clean granted URLs', async () => {
-  const updated = {ok: true, renderer: 'ass', size: 50, download_url: '/api/jobs/j/clips/clip.mp4?media_token=new-download', preview_url: '/api/jobs/j/clips/clip.mp4/preview?media_token=new-preview', srt_url: '/api/jobs/j/clips/clip.mp4/subtitles.srt?media_token=new-srt', ass_url: '/api/jobs/j/clips/clip.mp4/subtitles.ass?media_token=new-ass'};
+test('Studio export reports actual fallback renderer and refreshes clean media URLs', async () => {
+  const updated = {ok: true, renderer: 'ass', size: 50, download_url: '/api/jobs/j/clips/clip.mp4', preview_url: '/api/jobs/j/clips/clip.mp4/preview', srt_url: '/api/jobs/j/clips/clip.mp4/subtitles.srt', ass_url: '/api/jobs/j/clips/clip.mp4/subtitles.ass'};
   const b = browser({responses: [updated]}); const c = clip(); const job = {id: 'j', clips: [c]};
   b.context.renderClips = () => {};
   await b.context.openCaptionStudio(c, job); await b.get('#studio-export-btn').onclick();
   assert.match(b.get('#toast').textContent, /ASS/i); assert.doesNotMatch(b.get('#toast').textContent, /Skia|parity/i);
   assert.equal(c.download_url, updated.download_url);
-  assert.equal(new URL(b.get('#studio-video').src).searchParams.get('media_token'), 'new-preview');
-  assert.equal(b.requests[0].options.headers.get('Authorization'), 'Bearer owner-token');
+  assert.equal(new URL(b.get('#studio-video').src).pathname, '/api/jobs/j/clips/clip.mp4/preview');
+  assert.equal(b.requests[0].options.headers.has('Authorization'), false);
 });
 
 test('same-origin Docker configuration resolves API requests locally', async () => {
-  const b = browser({config: {apiBase: '', configured: true}, responses: [{user: {id: 'owner'}}]});
-  await b.context.CutflowAPI.request('/api/auth/me');
-  assert.equal(b.requests[0].url, 'https://frontend.example.test/api/auth/me');
+  const b = browser({config: {apiBase: '', configured: true}, responses: [{ok: true}]});
+  await b.context.CutflowAPI.request('/api/health');
+  assert.equal(b.requests[0].url, 'https://frontend.example.test/api/health');
 });
 
-for (const mode of ['login', 'register']) {
-  test(`${mode} submits account JSON without old bearer and loads only current owner projects`, async () => {
-    const session = {token: 'new-token', user: {id: 'new', email: 'new@example.test'}};
-    const b = browser({responses: [session, [{id: 'new-job', status: 'completed'}]]});
-    b.context.setAuthMode(mode); b.get('#auth-email').value = 'new@example.test'; b.get('#auth-password').value = 'private-password';
-    b.run("state.jobs = [{id:'old-job'}]");
-    await b.context.submitAuth({preventDefault() {}});
-    assert.equal(b.requests[0].url, `https://media.example.test/api/auth/${mode}`);
-    assert.equal(b.requests[0].options.headers.has('Authorization'), false);
-    assert.deepEqual(JSON.parse(b.requests[0].options.body), {email: 'new@example.test', password: 'private-password'});
-    assert.equal(b.requests[1].options.headers.get('Authorization'), 'Bearer new-token');
-    assert.equal(b.run('state.jobs[0].id'), 'new-job'); assert.equal(b.get('#auth-modal').hidden, true); assert.equal(b.get('#auth-password').value, '');
-  });
-}
-
-test('logout revokes backend bearer and clears local account/media state', async () => {
-  const b = browser({responses: [{ok: true}]});
-  b.run("state.jobs = [{id:'old-job'}]"); await b.context.logout();
-  assert.equal(b.requests[0].url, 'https://media.example.test/api/auth/logout');
-  assert.equal(b.requests[0].options.headers.get('Authorization'), 'Bearer owner-token');
-  assert.equal(b.context.CutflowAPI.getSession(), null); assert.equal(b.run('state.jobs.length'), 0); assert.equal(b.get('#auth-modal').hidden, false);
-});
-
-test('late request after switching account cannot repopulate previous owner jobs', async () => {
-  const b = browser(); let resolve;
-  b.context.fetch = () => new Promise((done) => {resolve = done;});
-  const pending = b.context.refreshProjects();
-  b.context.CutflowAPI.setSession({token: 'new', user: {id: 'new'}});
-  resolve(new Response(JSON.stringify([{id: 'old-job'}]), {headers: {'content-type': 'application/json'}}));
-  await pending; assert.equal(b.run('state.jobs.length'), 0);
-});
-
-test('download refreshes expired scoped media grants while preserving selected quality', async () => {
-  const fresh = clip(); fresh.download_url = '/api/jobs/j/clips/clip.mp4?media_token=fresh-grant';
+test('download refreshes media metadata while preserving selected quality', async () => {
+  const fresh = clip(); fresh.download_url = '/api/jobs/j/clips/clip.mp4?revision=fresh';
   const b = browser({responses: [{id: 'j', clips: [fresh]}]});
   b.context.location.assign = (url) => {b.context.location.assigned = url;};
   await b.context.downloadClip(clip(), {id: 'j'}, 'download', '720');
   const url = new URL(b.context.location.assigned);
-  assert.equal(url.origin, 'https://media.example.test'); assert.equal(url.searchParams.get('media_token'), 'fresh-grant'); assert.equal(url.searchParams.get('resolution'), '720');
+  assert.equal(url.origin, 'https://media.example.test'); assert.equal(url.searchParams.get('revision'), 'fresh'); assert.equal(url.searchParams.get('resolution'), '720');
 });
 
 test('open project fetches fresh metadata before rendering a previously idle project', async () => {
@@ -257,15 +229,15 @@ test('open project fetches fresh metadata before rendering a previously idle pro
   assert.equal(b.requests.length, 1); assert.equal(b.requests[0].url, 'https://media.example.test/api/jobs/j');
 });
 
-test('URL import goes directly to backend as authenticated JSON', async () => {
+test('URL import goes directly to backend without signing in', async () => {
   const b = browser(); b.run("state.sourceMode = 'link'"); b.get('#video-url').value = 'https://youtu.be/example';
   await b.context.createProject();
   assert.equal(b.requests[0].url, 'https://media.example.test/api/jobs/url');
-  assert.equal(b.requests[0].options.headers.get('Authorization'), 'Bearer owner-token');
+  assert.equal(b.requests[0].options.headers.has('Authorization'), false);
   assert.equal(JSON.parse(b.requests[0].options.body).source_url, 'https://youtu.be/example'); assert.equal(b.uploads.length, 0);
 });
 
-test('bulk deletion uses authenticated backend and clears the owner workspace', async () => {
+test('bulk deletion works without signing in and clears the shared workspace', async () => {
   const b = browser({responses: [{deleted_count: 2}]});
   b.run("state.jobs = [{id:'j'}, {id:'other'}]; state.activeJobId = 'j'; state.pollTimer = setTimeout(() => {}, 2200)");
   await b.context.openCaptionStudio(clip(), {id: 'j'});
@@ -273,7 +245,7 @@ test('bulk deletion uses authenticated backend and clears the owner workspace', 
   await b.context.deleteAllProjects();
   assert.equal(b.requests[0].url, 'https://media.example.test/api/jobs');
   assert.equal(b.requests[0].options.method, 'DELETE');
-  assert.equal(b.requests[0].options.headers.get('Authorization'), 'Bearer owner-token');
+  assert.equal(b.requests[0].options.headers.has('Authorization'), false);
   assert.equal(b.run('state.jobs.length'), 0); assert.equal(b.run('state.activeJobId'), null);
   assert.equal(b.get('#latest-results').hidden, true); assert.equal(b.get('#active-processing').hidden, true);
   assert.equal(b.get('#clips-grid').innerHTML, ''); assert.equal(b.run('activeStudio.timeline'), null);

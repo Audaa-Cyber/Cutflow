@@ -6,9 +6,19 @@ Deployment: https://cutflow-fawn.vercel.app/
 
 Audience: public.
 
-Current verdict: **the prepared Docker deployment is verified locally; public redeployment still needs a persistent backend server and its HTTPS URL.**
+Current status: **registration, login, logout and account-based project access were removed at the user's request. The app now uses a shared workspace.**
 
 The user approved end-to-end fixes and selected Docker deployment preparation. Application and deployment changes are implemented in the working tree. The existing public Vercel deployment has not been changed.
+
+## Account-removal update
+
+- Removed the account modal, disabled initial app shell, sign-out controls, session storage handling, bearer headers, authentication endpoints, ownership filtering and signed account media links.
+- Projects, previews, exports, subtitles, retries, cancellation and deletion now work without signing in. All visitors share the deployment's project library. Legacy project data remains available without exposing former owner identifiers.
+- Global processing capacity, downloader configuration, media cleanup and caption/rendering fixes remain in place. No project/database files were deleted during this code change.
+- Post-removal verification passed: **153 backend tests**, **22 frontend/build tests**, static frontend build, JavaScript/Python syntax checks and `git diff --check`.
+- The earlier Docker image and real-media results below predate account removal; rebuild the image when deploying this change. Vercel Container support is available, but the current deployment configuration still targets a static frontend and separate backend.
+
+The earlier authentication/ownership test results below describe the previous release and no longer represent the current access policy.
 
 ## Current verification after fixes
 

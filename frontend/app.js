@@ -34,101 +34,6 @@ const templateNames = {
   music: "Music & performance",
 };
 
-let authMode = "login";
-function showAuth() {
-  const modal = $("#auth-modal");
-  if (modal) { modal.hidden = false; modal.classList.add("open"); }
-  $("#auth-email")?.focus();
-}
-function updateAuthUI() {
-  const session = api.getSession();
-  const modal = $("#auth-modal");
-  if (modal) {modal.hidden = Boolean(session); modal.classList.toggle("open", !session);}
-  const shell = $(".app-shell");
-  if (shell) shell.inert = !session;
-  const email = $("#account-email");
-  if (email) email.textContent = session?.user.email || "";
-  const logout = $("#logout-button");
-  if (logout) logout.hidden = !session;
-}
-function resetAccountState() {
-  clearTimeout(state.pollTimer);
-  state.pollTimer = null;
-  state.jobs = [];
-  state.activeJobId = null;
-  state.file = null;
-  closeCaptionStudio();
-  activeStudio.clip = null;
-  activeStudio.job = null;
-  activeStudio.timeline = null;
-  activeStudio.activeWordIdx = -1;
-  for (const selector of ["#clips-grid", "#processing-list", "#projects-list", "#studio-words-list"]) {
-    const node = $(selector); if (node) node.innerHTML = "";
-  }
-  $("#active-processing").hidden = true;
-  $("#latest-results").hidden = true;
-  $("#project-count").textContent = "0";
-  $("#video-file").value = "";
-  $("#video-url").value = "";
-  $("#upload-title").textContent = "Drop your video here";
-  $("#upload-subtitle").textContent = "MP4, MOV, MKV or WEBM · up to 1 GB";
-  $("#upload-subtitle").style.color = "";
-  $("#dropzone").classList.remove("has-file");
-  $("#upload-progress").hidden = true;
-  const video = $("#studio-video");
-  if (video) {video.removeAttribute("src"); video.load();}
-  const canvas = $("#studio-overlay-canvas");
-  canvas?.getContext("2d")?.clearRect?.(0, 0, canvas.width, canvas.height);
-  $("#auth-password").value = "";
-  updateAuthUI();
-}
-document.addEventListener("cutflow:sessionchanged", resetAccountState);
-function setAuthMode(mode) {
-  authMode = mode;
-  $("#auth-submit").textContent = mode === "register" ? "Create account" : "Sign in";
-  $("#auth-password").autocomplete = mode === "register" ? "new-password" : "current-password";
-  $("#auth-password").minLength = mode === "register" ? 8 : 1;
-  $("#auth-error").textContent = "";
-  $$("[data-auth-mode]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.authMode === mode);
-    button.setAttribute("aria-pressed", String(button.dataset.authMode === mode));
-  });
-}
-async function submitAuth(event) {
-  event.preventDefault();
-  const button = $("#auth-submit");
-  button.disabled = true;
-  $("#auth-error").textContent = "";
-  try {
-    const session = await api.request(`/api/auth/${authMode}`, {
-      auth: false, method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({email: $("#auth-email").value.trim(), password: $("#auth-password").value}),
-    });
-    if (!session?.token || !session?.user?.id) throw new Error("The backend returned an invalid session. Please retry.");
-    api.setSession(session);
-    await refreshProjects();
-  } catch (error) { if (!error.stale) $("#auth-error").textContent = error.message; }
-  finally {button.disabled = false;}
-}
-async function logout() {
-  try {await api.request("/api/auth/logout", {method: "POST"});}
-  catch (error) {showApiError(error);}
-  finally {api.setSession(null); showAuth();}
-}
-async function restoreSession() {
-  updateAuthUI();
-  try {
-    api.baseUrl();
-    if (!api.getSession()) return;
-    const result = await api.request("/api/auth/me");
-    if (!result.user || result.user.id !== api.getSession()?.user.id) {api.setSession(null); return;}
-    await refreshProjects();
-  } catch (error) {
-    showApiError(error);
-    if (!error.stale) $("#auth-error").textContent = error.message;
-  }
-}
-
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
@@ -204,7 +109,6 @@ function readSettings() {
   };
 }
 async function createProject() {
-  if (!api.getSession()) { showAuth(); showToast("Sign in to create a project."); return; }
   const settings = readSettings();
   if (!settings) return;
   if (state.sourceMode === "upload" && !state.file) {
@@ -221,15 +125,44 @@ async function createProject() {
   try {
     let data;
     if (state.sourceMode === "upload") {
-      const form = new FormData();
-      form.append("file", state.file);
-      Object.entries(settings).forEach(([key, value]) => form.append(key, String(value)));
       $("#upload-progress").hidden = false;
-      data = await api.upload("/api/jobs/upload", form, (percent) => {
-        $("#upload-progress-bar").value = percent;
-        $("#upload-progress-label").textContent = `${percent}% uploaded`;
-        $("#create-button-label").textContent = percent < 100 ? `Uploading video · ${percent}%` : "Upload complete. Starting analysis…";
-      });
+      let blobUploaded = false;
+      if (window.VercelBlob?.upload && state.file?.size > 4 * 1024 * 1024) {
+        try {
+          const safeName = state.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const pathname = `cutflow/${Date.now()}-${safeName}`;
+          const blobResult = await window.VercelBlob.upload(pathname, state.file, {
+            access: "public",
+            handleUploadUrl: api.mediaUrl("/api/blob/upload"),
+            onUploadProgress: (progress) => {
+              const percent = Math.min(100, Math.round(progress.percentage));
+              $("#upload-progress-bar").value = percent;
+              $("#upload-progress-label").textContent = `${percent}% uploaded`;
+              $("#create-button-label").textContent = percent < 100 ? `Uploading video · ${percent}%` : "Upload complete. Starting analysis…";
+            }
+          });
+          if (blobResult?.url) {
+            data = await api.request("/api/jobs/blob", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...settings, blob_url: blobResult.url, filename: state.file.name }),
+            });
+            blobUploaded = true;
+          }
+        } catch (blobErr) {
+          console.warn("Direct blob upload fallback:", blobErr);
+        }
+      }
+      if (!blobUploaded) {
+        const form = new FormData();
+        form.append("file", state.file);
+        Object.entries(settings).forEach(([key, value]) => form.append(key, String(value)));
+        data = await api.upload("/api/jobs/upload", form, (percent) => {
+          $("#upload-progress-bar").value = percent;
+          $("#upload-progress-label").textContent = `${percent}% uploaded`;
+          $("#create-button-label").textContent = percent < 100 ? `Uploading video · ${percent}%` : "Upload complete. Starting analysis…";
+        });
+      }
     } else {
       data = await api.request("/api/jobs/url", {
         method: "POST",
@@ -540,7 +473,6 @@ async function downloadClip(clip, job, kind, resolution) {
   } catch (error) {showApiError(error, "Could not download this clip. Please retry.");}
 }
 async function refreshProjects() {
-  if (!api.getSession()) return;
   try {
     const jobs = await api.request("/api/jobs");
     if (!Array.isArray(jobs)) throw new Error("The backend returned an invalid project list.");
@@ -915,9 +847,6 @@ const PRESET_RECIPES = {
 
 
 function init() {
-  $("#auth-form")?.addEventListener("submit", submitAuth);
-  $("#logout-button")?.addEventListener("click", logout);
-  $$("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => setAuthMode(button.dataset.authMode)));
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   $$(".template-card").forEach((button) => button.addEventListener("click", () => {
     state.template = button.dataset.template;
@@ -1137,7 +1066,7 @@ function init() {
       $("#min-duration").value = String(options.find((value) => value < Number($("#max-duration").value)) || 10);
     }
   });
-  restoreSession();
+  refreshProjects();
 }
 function updateCount(delta) {
   const input = $("#clip-count");
@@ -1203,7 +1132,6 @@ async function configureCaptionStudio(clip, job) {
   // Clean up any prior running studio instance
   closeCaptionStudio();
   const generation = activeStudio.generation;
-  const owner = api.getRevision();
 
   activeStudio.clip = clip;
   activeStudio.job = job;
@@ -1213,7 +1141,7 @@ async function configureCaptionStudio(clip, job) {
     activeStudio.timeline = JSON.parse(JSON.stringify(clip.timeline));
   } else {
     const timeline = await api.request(clip.timeline_url || `/api/jobs/${encodeURIComponent(job.id)}/clips/${encodeURIComponent(clip.filename)}/timeline`);
-    if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
+    if (generation !== activeStudio.generation) return;
     if (!Array.isArray(timeline.words)) throw new Error("The backend returned an invalid caption timeline. Refresh the project and retry.");
     activeStudio.timeline = timeline;
   }
@@ -1226,7 +1154,7 @@ async function configureCaptionStudio(clip, job) {
     const fName = activeStudio.timeline.styling_metadata.font || 'Montserrat';
     await window.FontLoader.ensureFont(fName);
   }
-  if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
+  if (generation !== activeStudio.generation) return;
 
   // Populate Video Source
   const video = $("#studio-video");
@@ -1397,7 +1325,7 @@ async function configureCaptionStudio(clip, job) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ timeline: activeStudio.timeline }),
         });
-        if (generation !== activeStudio.generation || owner !== api.getRevision()) return;
+        if (generation !== activeStudio.generation) return;
         if (result.ok) {
           const renderer = result.renderer === "canvas" ? "Canvas" : result.renderer === "ass" ? "ASS subtitle" : result.renderer || "backend";
           showToast(`Export complete using the ${renderer} renderer.`);

@@ -13,4 +13,5 @@ def isolate_storage():
     root = Path(_storage.name)
     os.environ["CUTFLOW_DATA_DIR"] = str(root)
     os.environ["CUTFLOW_DB_PATH"] = str(root / "cutflow.sqlite3")
+    os.environ.setdefault("CUTFLOW_ALLOWED_ORIGINS", "https://cutflow.example")
     return root
